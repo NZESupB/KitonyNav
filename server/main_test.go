@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapSeedsCategoriesAndUpdates(t *testing.T) {
+func TestBootstrapSeedsNavigationContentAndDefaultSubscription(t *testing.T) {
 	dir := t.TempDir()
 	data, err := openStore(filepath.Join(dir, "kitonynav.db"))
 	if err != nil {
@@ -27,8 +27,61 @@ func TestBootstrapSeedsCategoriesAndUpdates(t *testing.T) {
 	if len(bootstrap.Categories) < 5 {
 		t.Fatalf("expected seeded categories, got %d", len(bootstrap.Categories))
 	}
-	if len(bootstrap.Updates) != 5 {
-		t.Fatalf("expected seeded updates, got %d", len(bootstrap.Updates))
+	// 默认不预置任何演示动态与演示服务状态。
+	if len(bootstrap.Updates) != 0 {
+		t.Fatalf("expected no demo updates, got %d", len(bootstrap.Updates))
+	}
+	if len(bootstrap.Services) != 0 {
+		t.Fatalf("expected no demo services, got %d", len(bootstrap.Services))
+	}
+	if len(bootstrap.Subscriptions) != 1 {
+		t.Fatalf("expected exactly one default subscription, got %+v", bootstrap.Subscriptions)
+	}
+	item := bootstrap.Subscriptions[0]
+	if item.Type != "github" || item.URL != defaultSubscriptionSource || !item.Enabled {
+		t.Fatalf("expected the project GitHub feed as the only default subscription, got %+v", item)
+	}
+}
+
+func TestDataDefaultsRunOnce(t *testing.T) {
+	dir := t.TempDir()
+	data, err := openStore(filepath.Join(dir, "kitonynav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.db.Close()
+	if _, err := data.db.Exec("INSERT INTO updates(source, title, time_text, url, sort_order) VALUES ('GitHub', 'React 19.1 正式发布', '2 天前', 'https://github.com/facebook/react/releases', 1)"); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟升级：重新执行默认数据步骤应清掉旧演示动态，重复执行也不会重复添加订阅。
+	if _, err := data.db.Exec("DELETE FROM settings WHERE key = 'data_defaults_v1'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDataDefaults(data.db); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDataDefaults(data.db); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := data.bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bootstrap.Updates) != 0 {
+		t.Fatalf("expected legacy demo updates to be cleared, got %d", len(bootstrap.Updates))
+	}
+	if len(bootstrap.Subscriptions) != 1 {
+		t.Fatalf("expected exactly one default subscription, got %d", len(bootstrap.Subscriptions))
+	}
+	// 用户自己删掉默认订阅后，不应该被再加回来。
+	if _, err := data.db.Exec("DELETE FROM subscriptions"); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyDataDefaults(data.db); err != nil {
+		t.Fatal(err)
+	}
+	if items := mustSubscriptions(data); len(items) != 0 {
+		t.Fatalf("expected a deleted subscription to stay deleted, got %+v", items)
 	}
 }
 
@@ -94,11 +147,50 @@ func TestV002BootstrapIncludesAppearanceAndMonitorDefaults(t *testing.T) {
 	if bootstrap.Settings.Appearance.Theme != "system" || bootstrap.Settings.Appearance.ClockStyle != "plain" {
 		t.Fatalf("unexpected appearance defaults: %+v", bootstrap.Settings.Appearance)
 	}
-	if len(bootstrap.Services) == 0 || bootstrap.Services[0].CheckType != "none" {
-		t.Fatalf("expected migrated service defaults: %+v", bootstrap.Services)
+	item, err := data.insertService(servicePayload{Name: "示例服务", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if bootstrap.Services[0].Enabled != true {
-		t.Fatalf("expected migrated service to remain enabled")
+	if item.CheckType != "none" || !item.Enabled {
+		t.Fatalf("expected new service defaults, got %+v", item)
+	}
+}
+
+func TestParseGitHubReleases(t *testing.T) {
+	items, err := parseGitHubReleases([]byte(`[{"id":42,"tag_name":"v0.2.0","name":"","html_url":"https://github.com/o/r/releases/tag/v0.2.0","published_at":"2026-09-10T00:00:00Z"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].title != "v0.2.0" || items[0].externalID != "42" || items[0].published != "2026-09-10T00:00:00Z" {
+		t.Fatalf("unexpected release entries: %+v", items)
+	}
+	if _, err := parseGitHubReleases([]byte("<html>")); err == nil {
+		t.Fatal("expected a non-JSON releases response to be rejected")
+	}
+}
+
+func TestParseGitHubTagFeed(t *testing.T) {
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:github.com,2008:/NZESupB/KitonyNav/tags</id>
+  <title>Tags from KitonyNav</title>
+  <updated>2026-09-11T07:54:38Z</updated>
+  <entry>
+    <id>tag:github.com,2008:Repository/1364020270/v0.1.1</id>
+    <title>v0.1.1</title>
+    <updated>2026-09-11T07:54:38Z</updated>
+    <link rel="alternate" type="text/html" href="https://github.com/NZESupB/KitonyNav/releases/tag/v0.1.1"/>
+  </entry>
+</feed>`
+	items, err := parseFeedDocument([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one tag entry, got %+v", items)
+	}
+	if items[0].title != "v0.1.1" || items[0].published != "2026-09-11T07:54:38Z" || !strings.HasSuffix(items[0].url, "/releases/tag/v0.1.1") {
+		t.Fatalf("unexpected tag entry: %+v", items[0])
 	}
 }
 
@@ -145,11 +237,14 @@ func TestValidIconSpec(t *testing.T) {
 }
 
 func TestSafeExternalHTTPURLRejectsPrivateTargets(t *testing.T) {
-	if safeExternalHTTPURL("http://127.0.0.1:8080/feed.xml") {
+	if err := safeExternalHTTPURL("http://127.0.0.1:8080/feed.xml"); err == nil {
 		t.Fatal("loopback subscription targets must be rejected")
 	}
-	if safeExternalHTTPURL("http://localhost/feed.xml") {
+	if err := safeExternalHTTPURL("http://localhost/feed.xml"); err == nil {
 		t.Fatal("localhost subscription targets must be rejected")
+	}
+	if err := safeExternalHTTPURL("javascript:alert(1)"); err == nil {
+		t.Fatal("non-HTTP subscription targets must be rejected")
 	}
 }
 

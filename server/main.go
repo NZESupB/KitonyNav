@@ -197,6 +197,10 @@ func openStore(path string) (*store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := applyDataDefaults(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &store{db: db}, nil
 }
 
@@ -397,29 +401,41 @@ func seed(db *sql.DB) error {
 			return err
 		}
 	}
-	services := []struct {
-		name, status string
-		latency      any
-	}{
-		{"网站访问", "online", 28}, {"API 服务", "online", 36}, {"数据库", "online", 18}, {"存储服务", "online", 31}, {"邮件服务", "degraded", nil},
+	// 服务与动态不再预置演示数据：服务由管理端配置后真实检查，动态由订阅抓取产生。
+	return tx.Commit()
+}
+
+const defaultSubscriptionSource = "NZESupB/KitonyNav"
+
+// applyDataDefaults 对每个数据库只执行一次：清掉旧版本写入的演示动态，补上本项目的 GitHub 订阅。
+// 用 settings 标记而不是判断"订阅是否为空"，避免把用户自己删掉的订阅又加回来。
+func applyDataDefaults(db *sql.DB) error {
+	var applied string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'data_defaults_v1'").Scan(&applied); err == nil {
+		return nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, service := range services {
-		if _, err := tx.Exec("INSERT INTO services(name, status, latency_ms, updated_at) VALUES (?, ?, ?, ?)", service.name, service.status, service.latency, now); err != nil {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// updates 是 v0.0.1 的演示表，没有任何写入入口，整表清空即可。
+	if _, err := tx.Exec("DELETE FROM updates"); err != nil {
+		return err
+	}
+	var existing int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE type = 'github' AND url = ?", defaultSubscriptionSource).Scan(&existing); err != nil {
+		return err
+	}
+	if existing == 0 {
+		if _, err := tx.Exec("INSERT INTO subscriptions(type, name, url, enabled, interval_seconds) VALUES ('github', ?, ?, 1, 900)", "KitonyNav", defaultSubscriptionSource); err != nil {
 			return err
 		}
 	}
-	updates := []struct{ source, title, timeText, url string }{
-		{"RSS", "少数派：如何构建一个更顺手的工作台", "2 小时前", "https://sspai.com"},
-		{"YouTube", "前端性能优化的 10 个实用技巧", "5 小时前", "https://www.youtube.com"},
-		{"GitHub", "KitonyNav：导航分类筛选与搜索体验优化", "昨天", "https://github.com"},
-		{"RSS", "InfoQ 精选：云原生应用的可观测性实践", "昨天", "https://www.infoq.cn"},
-		{"GitHub", "React 19.1 正式发布", "2 天前", "https://github.com/facebook/react/releases"},
-	}
-	for i, item := range updates {
-		if _, err := tx.Exec("INSERT INTO updates(source, title, time_text, url, sort_order) VALUES (?, ?, ?, ?, ?)", item.source, item.title, item.timeText, item.url, i); err != nil {
-			return err
-		}
+	if _, err := tx.Exec("INSERT INTO settings(key, value) VALUES ('data_defaults_v1', 'applied')"); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -672,66 +688,35 @@ func (s *store) refreshSubscription(id int) error {
 		return errors.New("订阅已停用")
 	}
 	target := item.URL
+	tagsFeed := ""
 	if item.Type == "github" {
-		parts := strings.Split(strings.Trim(item.URL, "/"), "/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		owner, repo, ok := githubRepoParts(item.URL)
+		if !ok {
 			return s.markSubscriptionError(id, "GitHub 源需要 owner/repo")
 		}
-		target = "https://api.github.com/repos/" + parts[0] + "/" + parts[1] + "/releases?per_page=20"
+		target = "https://api.github.com/repos/" + owner + "/" + repo + "/releases?per_page=20"
+		tagsFeed = "https://github.com/" + owner + "/" + repo + "/tags.atom"
 	}
-	if !safeExternalHTTPURL(target) {
-		return s.markSubscriptionError(id, "订阅地址无法通过安全检查")
-	}
-	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 3 {
-			return errors.New("重定向次数过多")
-		}
-		if !safeExternalHTTPURL(req.URL.String()) {
-			return errors.New("重定向地址不安全")
-		}
-		return nil
-	}}
-	request, err := http.NewRequest(http.MethodGet, target, nil)
+	body, err := fetchSubscriptionPayload(target)
 	if err != nil {
-		return s.markSubscriptionError(id, "订阅地址不正确")
+		return s.markSubscriptionError(id, err.Error())
 	}
-	request.Header.Set("User-Agent", "KitonyNav/0.0.2")
-	response, err := client.Do(request)
-	if err != nil {
-		return s.markSubscriptionError(id, "订阅请求失败："+err.Error())
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return s.markSubscriptionError(id, fmt.Sprintf("订阅返回 HTTP %d", response.StatusCode))
-	}
-	var feedItems []struct{ externalID, title, url, published string }
+	var feedItems []feedEntry
 	if item.Type == "github" {
-		var releases []githubRelease
-		if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
-			return s.markSubscriptionError(id, "GitHub 响应格式不正确")
+		if feedItems, err = parseGitHubReleases(body); err != nil {
+			return s.markSubscriptionError(id, err.Error())
 		}
-		for _, release := range releases {
-			title := defaultString(release.Name, release.TagName)
-			feedItems = append(feedItems, struct{ externalID, title, url, published string }{strconv.FormatInt(release.ID, 10), title, release.HTMLURL, release.PublishedAt})
-		}
-	} else {
-		var feed rssFeed
-		if err := xml.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&feed); err != nil {
-			return s.markSubscriptionError(id, "RSS/Atom 响应格式不正确")
-		}
-		for _, entry := range feed.Channel.Items {
-			key := defaultString(entry.GUID, entry.Link)
-			if key != "" && entry.Title != "" {
-				feedItems = append(feedItems, struct{ externalID, title, url, published string }{key, entry.Title, entry.Link, entry.PubDate})
+		if len(feedItems) == 0 {
+			// 仓库还没发布 Release 时退回 tags.atom，让"打了标签"也能产生动态。
+			if body, err = fetchSubscriptionPayload(tagsFeed); err != nil {
+				return s.markSubscriptionError(id, err.Error())
+			}
+			if feedItems, err = parseFeedDocument(body); err != nil {
+				return s.markSubscriptionError(id, err.Error())
 			}
 		}
-		for _, entry := range feed.Entries {
-			key := defaultString(entry.ID, entry.Link.Href)
-			if key != "" && entry.Title != "" {
-				published := defaultString(entry.Published, entry.Updated)
-				feedItems = append(feedItems, struct{ externalID, title, url, published string }{key, entry.Title, entry.Link.Href, published})
-			}
-		}
+	} else if feedItems, err = parseFeedDocument(body); err != nil {
+		return s.markSubscriptionError(id, err.Error())
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	tx, err := s.db.Begin()
@@ -751,6 +736,85 @@ func (s *store) refreshSubscription(id int) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+type feedEntry struct {
+	externalID string
+	title      string
+	url        string
+	published  string
+}
+
+// fetchSubscriptionPayload 是订阅抓取的统一边界：只允许外部 HTTP(S)、限制重定向次数与响应大小。
+func fetchSubscriptionPayload(target string) ([]byte, error) {
+	if err := safeExternalHTTPURL(target); err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("重定向次数过多")
+		}
+		if err := safeExternalHTTPURL(req.URL.String()); err != nil {
+			return errors.New("重定向地址不安全")
+		}
+		return nil
+	}}
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return nil, errors.New("订阅地址不正确")
+	}
+	request.Header.Set("User-Agent", "KitonyNav/0.0.2")
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, errors.New("订阅请求失败：" + err.Error())
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("订阅返回 HTTP %d", response.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(response.Body, 2<<20))
+}
+
+func githubRepoParts(value string) (string, string, bool) {
+	parts := strings.Split(strings.Trim(value, "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func parseGitHubReleases(body []byte) ([]feedEntry, error) {
+	var releases []githubRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil, errors.New("GitHub 响应格式不正确")
+	}
+	items := make([]feedEntry, 0, len(releases))
+	for _, release := range releases {
+		items = append(items, feedEntry{externalID: strconv.FormatInt(release.ID, 10), title: defaultString(release.Name, release.TagName), url: release.HTMLURL, published: release.PublishedAt})
+	}
+	return items, nil
+}
+
+// parseFeedDocument 同时处理 RSS 2.0 与 Atom；GitHub 的 tags.atom 也走这条路径。
+func parseFeedDocument(body []byte) ([]feedEntry, error) {
+	var feed rssFeed
+	if err := xml.Unmarshal(body, &feed); err != nil {
+		return nil, errors.New("RSS/Atom 响应格式不正确")
+	}
+	items := make([]feedEntry, 0, len(feed.Channel.Items)+len(feed.Entries))
+	for _, entry := range feed.Channel.Items {
+		key := defaultString(entry.GUID, entry.Link)
+		if key != "" && entry.Title != "" {
+			items = append(items, feedEntry{externalID: key, title: entry.Title, url: entry.Link, published: entry.PubDate})
+		}
+	}
+	for _, entry := range feed.Entries {
+		key := defaultString(entry.ID, entry.Link.Href)
+		if key != "" && entry.Title != "" {
+			items = append(items, feedEntry{externalID: key, title: entry.Title, url: entry.Link.Href, published: defaultString(entry.Published, entry.Updated)})
+		}
+	}
+	return items, nil
 }
 
 func (s *store) markSubscriptionError(id int, message string) error {
@@ -1589,25 +1653,27 @@ func validIconSpec(kind, value string) bool {
 	return validHTTPURL(value) || (strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//"))
 }
 
-func safeExternalHTTPURL(value string) bool {
+// safeExternalHTTPURL 拒绝内网与保留地址，并给出可定位的错误原因。
+func safeExternalHTTPURL(value string) error {
 	if !validHTTPURL(value) {
-		return false
+		return errors.New("地址不正确")
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return false
+		return errors.New("地址不正确")
 	}
 	host := parsed.Hostname()
 	addresses, err := net.LookupIP(host)
 	if err != nil || len(addresses) == 0 {
-		return false
+		return fmt.Errorf("地址无法解析：%s", host)
 	}
 	for _, address := range addresses {
 		if address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast() || address.IsUnspecified() || address.IsMulticast() {
-			return false
+			// 内网目标，或本机代理把域名解析到 198.18.0.0/15 这类保留网段。
+			return fmt.Errorf("地址解析到内网或保留地址：%s", host)
 		}
 	}
-	return true
+	return nil
 }
 
 func decodeJSON(r *http.Request, target any) error {
