@@ -100,7 +100,7 @@ import {
   refreshService,
   refreshSubscription,
 } from "./api";
-import { engineOptions, engineUrls, type AppearanceSettings, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription, type UpdateItem } from "./data";
+import { engineOptions, engineUrls, normalizeBootstrap, resolveEngine, type AppearanceSettings, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription, type UpdateItem } from "./data";
 
 type Theme = "system" | "light" | "dark";
 type IconKey = string;
@@ -198,10 +198,21 @@ function useClock() {
   return now;
 }
 
-function formatClock(now: Date, timezone: string, appearance: AppearanceSettings) {
-  const time = now.toLocaleTimeString("zh-CN", { timeZone: timezone || undefined, hour: "2-digit", minute: "2-digit", second: appearance.clockSeconds ? "2-digit" : undefined, hour12: !appearance.clock24Hour });
-  const date = now.toLocaleDateString("zh-CN", { timeZone: timezone || undefined, month: "long", day: "numeric", weekday: "short" });
+function formatClock(now: Date, timezone: string | undefined, appearance: AppearanceSettings) {
+  const time = now.toLocaleTimeString("zh-CN", { timeZone: timezone, hour: "2-digit", minute: "2-digit", second: appearance.clockSeconds ? "2-digit" : undefined, hour12: !appearance.clock24Hour });
+  const date = now.toLocaleDateString("zh-CN", { timeZone: timezone, month: "long", day: "numeric", weekday: "short" });
   return { time, date };
+}
+
+// 非法时区名称会让 Intl 抛出 RangeError 并中断整棵渲染树，因此只把可用名称交给格式化函数。
+function safeTimezone(timezone: string | undefined) {
+  const value = (timezone ?? "").trim();
+  if (!value) return undefined;
+  try {
+    return new Intl.DateTimeFormat("zh-CN", { timeZone: value }).resolvedOptions().timeZone || value;
+  } catch {
+    return undefined;
+  }
 }
 
 function nextTheme(theme: Theme): Theme {
@@ -342,10 +353,7 @@ function AppShell() {
     localStorage.setItem("kitony-sidebar", collapsed ? "collapsed" : "expanded");
   }, [collapsed]);
 
-  const appData = data ? {
-    ...data,
-    categories: data.categories.map((category) => ({ ...category, links: category.links ?? [] })),
-  } : undefined;
+  const appData = data ? normalizeBootstrap(data) : undefined;
 
   if (!appData) {
     return <div className="app-loading"><div className="loading-orb" /><span>准备你的导航空间</span></div>;
@@ -450,7 +458,8 @@ function NavItem({ to, icon, label, collapsed, exact }: { to: string; icon: Reac
 function TopBar({ data, theme, setTheme, onOpenMenu }: { data: BootstrapData; theme: Theme; setTheme: (value: Theme) => void; onOpenMenu: () => void }) {
   const now = useClock();
   const appearance = data.settings.appearance ?? { theme: "system", clockStyle: "plain", clock24Hour: true, clockSeconds: false, clockColor: "#2f6ff3", clockSpeed: 1 };
-  const { time, date } = formatClock(now, data.settings.timezone, appearance);
+  const timezone = useMemo(() => safeTimezone(data.settings.timezone), [data.settings.timezone]);
+  const { time, date } = formatClock(now, timezone, appearance);
   const clockClass = `clock-${appearance.clockStyle}`;
   const systemDark = useSystemDark();
   const activeTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme;
@@ -470,7 +479,7 @@ function TopBar({ data, theme, setTheme, onOpenMenu }: { data: BootstrapData; th
 
 function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { data: BootstrapData; activeCategory: number | null; setActiveCategory: (value: number | null) => void; isFetching: boolean }) {
   const [query, setQuery] = useState("");
-  const [engine, setEngine] = useState(data.settings.defaultEngine || "Google");
+  const [engine, setEngine] = useState(() => resolveEngine(data.settings.defaultEngine));
   const [showAll, setShowAll] = useState(false);
   const navigate = useNavigate();
   const visibleLinks = useMemo(() => data.categories.flatMap((category) => category.links), [data.categories]);
@@ -503,7 +512,7 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
     const activeEngine = bangEngine || engine;
     const searchQuery = bangEngine ? parts.slice(1).join(" ") : raw;
     if (!searchQuery) return;
-    const target = engineUrls[activeEngine].replace("QUERY", encodeURIComponent(searchQuery));
+    const target = engineUrls[resolveEngine(activeEngine)].replace("QUERY", encodeURIComponent(searchQuery));
     window.open(target, "_blank", "noopener,noreferrer");
   };
 
@@ -754,11 +763,13 @@ function SettingsPanel({ data }: { data: BootstrapData }) {
   const [clockSeconds, setClockSeconds] = useState(appearance.clockSeconds);
   const [clockColor, setClockColor] = useState(appearance.clockColor);
   const [clockSpeed, setClockSpeed] = useState(String(appearance.clockSpeed || 1));
+  const [saveError, setSaveError] = useState("");
   const mutation = useMutation({
     mutationFn: () => updateSettings({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, theme: themeDefault, clockStyle, clock24Hour, clockSeconds, clockColor, clockSpeed: Number(clockSpeed) || 1 }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bootstrap"] }),
+    onSuccess: () => { setSaveError(""); queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); },
+    onError: (error: Error) => setSaveError(error.message || "保存设置失败"),
   });
-  return <section className="settings-form"><div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending}><Check size={16} /> {mutation.isPending ? "保存中" : "保存设置"}</button></div><div className="settings-grid"><label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label><label>默认搜索引擎<select value={defaultEngine} onChange={(event) => setDefaultEngine(event.target.value)}>{engineOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label><label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label><label>主题默认值<select value={themeDefault} onChange={(event) => setThemeDefault(event.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>时钟样式<select value={clockStyle} onChange={(event) => setClockStyle(event.target.value as AppearanceSettings["clockStyle"])}>{clockStyles.map((style) => <option key={style} value={style}>{style === "plain" ? "标准" : style === "flip" ? "翻页" : style === "ticker" ? "滚动" : "柔和发光"}</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={clock24Hour} onChange={(event) => setClock24Hour(event.target.checked)} /> 24 小时制</label><label className="checkbox-row"><input type="checkbox" checked={clockSeconds} onChange={(event) => setClockSeconds(event.target.checked)} /> 显示秒数</label><label>时钟颜色<input type="color" value={clockColor} onChange={(event) => setClockColor(event.target.value)} /></label><label>动画速度<input type="number" min="1" max="3" value={clockSpeed} onChange={(event) => setClockSpeed(event.target.value)} /></label></div><div className="settings-note"><CircleHelp size={17} /><span>主页主题按钮按“跟随系统 → 浅色 → 深色”循环；时钟效果只影响顶部显示。</span></div></section>;
+  return <section className="settings-form"><div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending}><Check size={16} /> {mutation.isPending ? "保存中" : "保存设置"}</button></div><div className="settings-grid"><label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label><label>默认搜索引擎<select value={defaultEngine} onChange={(event) => setDefaultEngine(event.target.value)}>{engineOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label><label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label><label>主题默认值<select value={themeDefault} onChange={(event) => setThemeDefault(event.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>时钟样式<select value={clockStyle} onChange={(event) => setClockStyle(event.target.value as AppearanceSettings["clockStyle"])}>{clockStyles.map((style) => <option key={style} value={style}>{style === "plain" ? "标准" : style === "flip" ? "翻页" : style === "ticker" ? "滚动" : "柔和发光"}</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={clock24Hour} onChange={(event) => setClock24Hour(event.target.checked)} /> 24 小时制</label><label className="checkbox-row"><input type="checkbox" checked={clockSeconds} onChange={(event) => setClockSeconds(event.target.checked)} /> 显示秒数</label><label>时钟颜色<input type="color" value={clockColor} onChange={(event) => setClockColor(event.target.value)} /></label><label>动画速度<input type="number" min="1" max="3" value={clockSpeed} onChange={(event) => setClockSpeed(event.target.value)} /></label></div>{saveError && <p className="settings-error">{saveError}</p>}<div className="settings-note"><CircleHelp size={17} /><span>主页主题按钮按“跟随系统 → 浅色 → 深色”循环；时钟效果只影响顶部显示；时区请填写 IANA 名称，例如 Asia/Shanghai。</span></div></section>;
 }
 
 export { App };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { engineUrls, fallbackBootstrap } from "./data";
+import { engineUrls, fallbackBootstrap, normalizeBootstrap, resolveEngine, type BootstrapData } from "./data";
 
 describe("navigation bootstrap data", () => {
   it("keeps bang search engines mapped to valid destinations", () => {
@@ -18,5 +18,25 @@ describe("navigation bootstrap data", () => {
     expect(fallbackBootstrap.settings.appearance?.theme).toBe("system");
     expect(fallbackBootstrap.settings.appearance?.clockStyle).toBe("plain");
     expect(fallbackBootstrap.categories[0].links.every((item) => item.connectivityEnabled)).toBe(true);
+  });
+
+  it("normalizes null lists from the API into empty arrays", () => {
+    const payload = { ...fallbackBootstrap, categories: null, services: null, updates: null, subscriptions: null } as unknown as BootstrapData;
+    const normalized = normalizeBootstrap(payload);
+    expect(normalized.categories).toEqual([]);
+    expect(normalized.services).toEqual([]);
+    expect(normalized.updates).toEqual([]);
+    expect(normalized.subscriptions).toEqual([]);
+  });
+
+  it("normalizes a category without links into an empty link list", () => {
+    const payload = { ...fallbackBootstrap, categories: [{ id: 1, name: "常用", description: "", icon: "star" }] } as unknown as BootstrapData;
+    expect(normalizeBootstrap(payload).categories[0].links).toEqual([]);
+  });
+
+  it("falls back to the default engine when the configured one is unknown", () => {
+    expect(resolveEngine("百度")).toBe("百度");
+    expect(resolveEngine("Bing")).toBe("Google");
+    expect(resolveEngine(undefined)).toBe("Google");
   });
 });

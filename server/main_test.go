@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -147,6 +150,54 @@ func TestSafeExternalHTTPURLRejectsPrivateTargets(t *testing.T) {
 	}
 	if safeExternalHTTPURL("http://localhost/feed.xml") {
 		t.Fatal("localhost subscription targets must be rejected")
+	}
+}
+
+func TestBootstrapKeepsEmptyListsAsArrays(t *testing.T) {
+	dir := t.TempDir()
+	data, err := openStore(filepath.Join(dir, "kitonynav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.db.Close()
+	if _, err := data.db.Exec("DELETE FROM links; DELETE FROM categories; DELETE FROM services; DELETE FROM updates"); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := data.bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 前端按数组消费这些字段，返回 null 会在渲染期抛错并让整页白屏。
+	for _, field := range []string{`"categories":[]`, `"services":[]`, `"updates":[]`} {
+		if !strings.Contains(string(payload), field) {
+			t.Fatalf("expected %s in bootstrap payload, got %s", field, payload)
+		}
+	}
+}
+
+func TestUpdateSettingsValidatesTimezone(t *testing.T) {
+	dir := t.TempDir()
+	data, err := openStore(filepath.Join(dir, "kitonynav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.db.Close()
+	if err := data.updateSettings(settingsPayload{Timezone: "Mars/Olympus"}); !errors.Is(err, errInvalidTimezone) {
+		t.Fatalf("expected invalid timezone to be rejected, got %v", err)
+	}
+	if err := data.updateSettings(settingsPayload{BrandName: "KitonyNav", Timezone: "Asia/Shanghai"}); err != nil {
+		t.Fatalf("expected valid timezone to be accepted, got %v", err)
+	}
+	bootstrap, err := data.bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootstrap.Settings.Timezone != "Asia/Shanghai" {
+		t.Fatalf("expected stored timezone, got %q", bootstrap.Settings.Timezone)
 	}
 }
 

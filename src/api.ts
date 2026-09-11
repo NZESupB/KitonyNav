@@ -9,6 +9,17 @@ function storedCsrfToken() {
   return typeof sessionStorage === "undefined" ? "" : sessionStorage.getItem("kitonynav-csrf") || "";
 }
 
+async function errorMessage(response: Response) {
+  const text = (await response.text()).trim();
+  if (!text) return response.statusText || `请求失败（HTTP ${response.status}）`;
+  try {
+    const value = JSON.parse(text) as { error?: string };
+    return value.error || text;
+  } catch {
+    return text;
+  }
+}
+
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const method = (init?.method || "GET").toUpperCase();
   const csrfToken = storedCsrfToken() || (typeof document === "undefined"
@@ -23,7 +34,7 @@ async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise
     headers,
   });
   if (!response.ok) {
-    throw new Error((await response.text()) || response.statusText);
+    throw new Error(await errorMessage(response));
   }
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }

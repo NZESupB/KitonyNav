@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata" // 内置 IANA 时区库，容器内没有安装 tzdata 时也能校验时区
 
 	_ "modernc.org/sqlite"
 )
@@ -431,7 +432,8 @@ func boolInt(value bool) int {
 }
 
 func (s *store) bootstrap() (bootstrapResponse, error) {
-	var result bootstrapResponse
+	// 列表字段始终以数组返回，配置被删空时不能序列化成 null。
+	result := bootstrapResponse{Categories: []category{}, Services: []serviceStatus{}, Updates: []updateItem{}}
 	settings := map[string]string{}
 	rows, err := s.db.Query("SELECT key, value FROM settings")
 	if err != nil {
@@ -842,12 +844,16 @@ func (s *store) updateLink(id int, payload linkPayload) (link, error) {
 }
 
 func (s *store) updateSettings(payload settingsPayload) error {
+	timezone, err := resolveTimezone(payload.Timezone)
+	if err != nil {
+		return err
+	}
 	values := map[string]string{
 		"brand_name":        defaultString(payload.BrandName, "KitonyNav"),
 		"brand_description": defaultString(payload.BrandDescription, "把常用的站点，放在顺手的位置。"),
 		"default_engine":    defaultString(payload.DefaultEngine, "Google"),
 		"weather_location":  defaultString(payload.WeatherLocation, "上海市"),
-		"timezone":          defaultString(payload.Timezone, "Asia/Shanghai"),
+		"timezone":          timezone,
 		"theme_default":     defaultEnum(payload.Theme, "system", "system", "light", "dark"),
 		"clock_style":       defaultEnum(payload.ClockStyle, "plain", "plain", "flip", "ticker", "glow"),
 		"clock_24_hour":     strconv.FormatBool(payload.Clock24Hour),
@@ -876,6 +882,20 @@ func defaultEnum(value, fallback string, allowed ...string) string {
 		}
 	}
 	return fallback
+}
+
+var errInvalidTimezone = errors.New("时区不正确")
+
+// resolveTimezone 只接受 IANA 时区名称；空值回落站点默认时区。非法名称会让所有时间格式化失败，必须在写入前拦住。
+func resolveTimezone(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "Asia/Shanghai", nil
+	}
+	if _, err := time.LoadLocation(value); err != nil {
+		return "", errInvalidTimezone
+	}
+	return value, nil
 }
 
 func (s *store) services() ([]serviceStatus, error) {
@@ -1120,7 +1140,8 @@ func (s *appServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	digest := sha256.Sum256(payload)
 	etag := fmt.Sprintf("\"%x\"", digest[:8])
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "public, max-age=15, stale-while-revalidate=60")
+	// 后台写入后要立刻可见，因此只做 ETag 协商缓存，不允许直接用未校验的本地副本。
+	w.Header().Set("Cache-Control", "no-cache")
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
@@ -1287,6 +1308,10 @@ func (s *appServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.store.updateSettings(payload); err != nil {
+		if errors.Is(err, errInvalidTimezone) {
+			writeError(w, http.StatusBadRequest, "时区不正确，请填写 IANA 时区名称，例如 Asia/Shanghai")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "保存站点设置失败")
 		return
 	}
@@ -1648,9 +1673,17 @@ func staticMiddleware(api http.Handler, directory string) http.Handler {
 		}
 		requested := filepath.Join(directory, filepath.Clean("/"+r.URL.Path))
 		if info, err := os.Stat(requested); err == nil && !info.IsDir() {
+			// 构建产物带内容哈希，可以长期缓存；入口 HTML 与品牌资源必须每次校验。
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			files.ServeHTTP(w, r)
 			return
 		}
+		// 未命中的前端路由回落到入口 HTML；不能缓存，否则旧 HTML 会一直指向已删除的资源。
+		w.Header().Set("Cache-Control", "no-cache")
 		fallback := r.Clone(r.Context())
 		fallback.URL.Path = "/"
 		files.ServeHTTP(w, fallback)

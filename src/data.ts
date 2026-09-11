@@ -100,6 +100,17 @@ export type BootstrapData = {
   network?: NetworkInfo;
 };
 
+// 服务端在配置被删空时会给出 null 列表，统一收敛成数组，避免渲染期崩溃导致整页白屏。
+export function normalizeBootstrap(data: BootstrapData): BootstrapData {
+  return {
+    ...data,
+    categories: (data.categories ?? []).map((category) => ({ ...category, links: category.links ?? [] })),
+    services: data.services ?? [],
+    updates: data.updates ?? [],
+    subscriptions: data.subscriptions ?? [],
+  };
+}
+
 const link = (
   id: number,
   categoryId: number,
@@ -255,3 +266,8 @@ export const engineUrls: Record<string, string> = {
 };
 
 export const engineOptions = Object.keys(engineUrls);
+
+// 配置里可能留有已下线的引擎名称，回落到默认引擎，避免取值 undefined 后中断搜索。
+export function resolveEngine(value: string | undefined) {
+  return value && engineUrls[value] ? value : engineOptions[0];
+}
