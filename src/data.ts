@@ -4,9 +4,12 @@ export type LinkItem = {
   description: string;
   url: string;
   icon: string;
+  iconKind?: "builtin" | "url";
+  iconUrl?: string;
   categoryId: number;
   featured?: boolean;
   visible?: boolean;
+  connectivityEnabled?: boolean;
 };
 
 export type Category = {
@@ -14,6 +17,8 @@ export type Category = {
   name: string;
   description: string;
   icon: string;
+  iconKind?: "builtin" | "url";
+  iconUrl?: string;
   links: LinkItem[];
   visible?: boolean;
 };
@@ -24,6 +29,16 @@ export type ServiceStatus = {
   status: "online" | "degraded" | "offline" | "unknown";
   latencyMs?: number;
   updatedAt: string;
+  enabled?: boolean;
+  checkType?: "http" | "tcp" | "none";
+  target?: string;
+  port?: number;
+  sourceStatus?: "online" | "degraded" | "offline" | "unknown";
+  sourceUpdatedAt?: string;
+  sourceError?: string;
+  localState?: "reachable" | "unreachable" | "unknown" | "checking";
+  localLatencyMs?: number;
+  localCheckedAt?: string;
 };
 
 export type UpdateItem = {
@@ -32,6 +47,39 @@ export type UpdateItem = {
   title: string;
   time: string;
   url: string;
+  subscriptionId?: number;
+  publishedAt?: string;
+};
+
+export type Subscription = {
+  id: number;
+  type: "rss" | "github" | "youtube";
+  name: string;
+  url: string;
+  enabled: boolean;
+  intervalSeconds: number;
+  lastCheckedAt?: string;
+  lastError?: string;
+  itemCount?: number;
+};
+
+export type NetworkInfo = {
+  address?: string;
+  family?: "IPv4" | "IPv6";
+  source?: "http" | "webrtc";
+  location?: string;
+  isp?: string;
+  asn?: string;
+  status: "available" | "partial" | "unavailable";
+};
+
+export type AppearanceSettings = {
+  theme: "system" | "light" | "dark";
+  clockStyle: "plain" | "flip" | "ticker" | "glow";
+  clock24Hour: boolean;
+  clockSeconds: boolean;
+  clockColor: string;
+  clockSpeed: number;
 };
 
 export type BootstrapData = {
@@ -43,10 +91,13 @@ export type BootstrapData = {
     defaultEngine: string;
     weatherLocation: string;
     timezone: string;
+    appearance?: AppearanceSettings;
   };
   categories: Category[];
   services: ServiceStatus[];
   updates: UpdateItem[];
+  subscriptions?: Subscription[];
+  network?: NetworkInfo;
 };
 
 const link = (
@@ -66,6 +117,7 @@ const link = (
   icon,
   featured,
   visible: true,
+  connectivityEnabled: true,
 });
 
 export const fallbackBootstrap: BootstrapData = {
@@ -77,6 +129,14 @@ export const fallbackBootstrap: BootstrapData = {
     defaultEngine: "Google",
     weatherLocation: "上海市",
     timezone: "Asia/Shanghai",
+    appearance: {
+      theme: "system",
+      clockStyle: "plain",
+      clock24Hour: true,
+      clockSeconds: false,
+      clockColor: "#2f6ff3",
+      clockSpeed: 1,
+    },
   },
   categories: [
     {
@@ -170,11 +230,11 @@ export const fallbackBootstrap: BootstrapData = {
     },
   ],
   services: [
-    { id: 1, name: "网站访问", status: "online", latencyMs: 28, updatedAt: "刚刚" },
-    { id: 2, name: "API 服务", status: "online", latencyMs: 36, updatedAt: "刚刚" },
-    { id: 3, name: "数据库", status: "online", latencyMs: 18, updatedAt: "刚刚" },
-    { id: 4, name: "存储服务", status: "online", latencyMs: 31, updatedAt: "刚刚" },
-    { id: 5, name: "邮件服务", status: "degraded", updatedAt: "6 分钟前" },
+    { id: 1, name: "网站访问", status: "online", latencyMs: 28, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
+    { id: 2, name: "API 服务", status: "online", latencyMs: 36, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
+    { id: 3, name: "数据库", status: "online", latencyMs: 18, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
+    { id: 4, name: "存储服务", status: "online", latencyMs: 31, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
+    { id: 5, name: "邮件服务", status: "degraded", updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
   ],
   updates: [
     { id: 1, source: "RSS", title: "少数派：如何构建一个更顺手的工作台", time: "2 小时前", url: "https://sspai.com" },
@@ -183,6 +243,8 @@ export const fallbackBootstrap: BootstrapData = {
     { id: 4, source: "RSS", title: "InfoQ 精选：云原生应用的可观测性实践", time: "昨天", url: "https://www.infoq.cn" },
     { id: 5, source: "GitHub", title: "React 19.1 正式发布", time: "2 天前", url: "https://github.com/facebook/react/releases" },
   ],
+  subscriptions: [],
+  network: { status: "unavailable" },
 };
 
 export const engineUrls: Record<string, string> = {
@@ -193,4 +255,3 @@ export const engineUrls: Record<string, string> = {
 };
 
 export const engineOptions = Object.keys(engineUrls);
-

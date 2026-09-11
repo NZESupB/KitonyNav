@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -29,35 +30,68 @@ type category struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
+	IconKind    string `json:"iconKind,omitempty"`
+	IconURL     string `json:"iconUrl,omitempty"`
 	Links       []link `json:"links"`
 	Visible     bool   `json:"visible"`
 }
 
 type link struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Icon        string `json:"icon"`
-	CategoryID  int    `json:"categoryId"`
-	Featured    bool   `json:"featured"`
-	Visible     bool   `json:"visible"`
+	ID                  int    `json:"id"`
+	Name                string `json:"name"`
+	Description         string `json:"description"`
+	URL                 string `json:"url"`
+	Icon                string `json:"icon"`
+	IconKind            string `json:"iconKind,omitempty"`
+	IconURL             string `json:"iconUrl,omitempty"`
+	CategoryID          int    `json:"categoryId"`
+	Featured            bool   `json:"featured"`
+	Visible             bool   `json:"visible"`
+	ConnectivityEnabled bool   `json:"connectivityEnabled"`
 }
 
 type serviceStatus struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	LatencyMS *int   `json:"latencyMs,omitempty"`
-	UpdatedAt string `json:"updatedAt"`
+	ID              int    `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	LatencyMS       *int   `json:"latencyMs,omitempty"`
+	UpdatedAt       string `json:"updatedAt"`
+	Enabled         bool   `json:"enabled"`
+	CheckType       string `json:"checkType"`
+	Target          string `json:"target,omitempty"`
+	Port            *int   `json:"port,omitempty"`
+	SourceStatus    string `json:"sourceStatus,omitempty"`
+	SourceUpdatedAt string `json:"sourceUpdatedAt,omitempty"`
+	SourceError     string `json:"sourceError,omitempty"`
 }
 
 type updateItem struct {
-	ID     int    `json:"id"`
-	Source string `json:"source"`
-	Title  string `json:"title"`
-	Time   string `json:"time"`
-	URL    string `json:"url"`
+	ID             int    `json:"id"`
+	Source         string `json:"source"`
+	Title          string `json:"title"`
+	Time           string `json:"time"`
+	URL            string `json:"url"`
+	SubscriptionID *int   `json:"subscriptionId,omitempty"`
+	PublishedAt    string `json:"publishedAt,omitempty"`
+}
+
+type subscription struct {
+	ID              int    `json:"id"`
+	Type            string `json:"type"`
+	Name            string `json:"name"`
+	URL             string `json:"url"`
+	Enabled         bool   `json:"enabled"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	LastCheckedAt   string `json:"lastCheckedAt,omitempty"`
+	LastError       string `json:"lastError,omitempty"`
+	ItemCount       int    `json:"itemCount"`
+}
+
+type networkInfo struct {
+	Address string `json:"address,omitempty"`
+	Family  string `json:"family,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Status  string `json:"status"`
 }
 
 type bootstrapResponse struct {
@@ -66,29 +100,46 @@ type bootstrapResponse struct {
 		Description string `json:"description"`
 	} `json:"brand"`
 	Settings struct {
-		DefaultEngine   string `json:"defaultEngine"`
-		WeatherLocation string `json:"weatherLocation"`
-		Timezone        string `json:"timezone"`
+		DefaultEngine   string             `json:"defaultEngine"`
+		WeatherLocation string             `json:"weatherLocation"`
+		Timezone        string             `json:"timezone"`
+		Appearance      appearanceSettings `json:"appearance"`
 	} `json:"settings"`
-	Categories []category      `json:"categories"`
-	Services   []serviceStatus `json:"services"`
-	Updates    []updateItem    `json:"updates"`
+	Categories    []category      `json:"categories"`
+	Services      []serviceStatus `json:"services"`
+	Updates       []updateItem    `json:"updates"`
+	Subscriptions []subscription  `json:"subscriptions"`
+	Network       networkInfo     `json:"network"`
+}
+
+type appearanceSettings struct {
+	Theme        string `json:"theme"`
+	ClockStyle   string `json:"clockStyle"`
+	Clock24Hour  bool   `json:"clock24Hour"`
+	ClockSeconds bool   `json:"clockSeconds"`
+	ClockColor   string `json:"clockColor"`
+	ClockSpeed   int    `json:"clockSpeed"`
 }
 
 type categoryPayload struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
+	IconKind    string `json:"iconKind"`
+	IconURL     string `json:"iconUrl"`
 }
 
 type linkPayload struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Icon        string `json:"icon"`
-	CategoryID  int    `json:"categoryId"`
-	Featured    bool   `json:"featured"`
-	Visible     bool   `json:"visible"`
+	Name                string `json:"name"`
+	Description         string `json:"description"`
+	URL                 string `json:"url"`
+	Icon                string `json:"icon"`
+	IconKind            string `json:"iconKind"`
+	IconURL             string `json:"iconUrl"`
+	CategoryID          int    `json:"categoryId"`
+	Featured            bool   `json:"featured"`
+	Visible             bool   `json:"visible"`
+	ConnectivityEnabled bool   `json:"connectivityEnabled"`
 }
 
 type settingsPayload struct {
@@ -97,6 +148,28 @@ type settingsPayload struct {
 	DefaultEngine    string `json:"defaultEngine"`
 	WeatherLocation  string `json:"weatherLocation"`
 	Timezone         string `json:"timezone"`
+	Theme            string `json:"theme"`
+	ClockStyle       string `json:"clockStyle"`
+	Clock24Hour      bool   `json:"clock24Hour"`
+	ClockSeconds     bool   `json:"clockSeconds"`
+	ClockColor       string `json:"clockColor"`
+	ClockSpeed       int    `json:"clockSpeed"`
+}
+
+type servicePayload struct {
+	Name      string `json:"name"`
+	Enabled   bool   `json:"enabled"`
+	CheckType string `json:"checkType"`
+	Target    string `json:"target"`
+	Port      int    `json:"port"`
+}
+
+type subscriptionPayload struct {
+	Type            string `json:"type"`
+	Name            string `json:"name"`
+	URL             string `json:"url"`
+	Enabled         bool   `json:"enabled"`
+	IntervalSeconds int    `json:"intervalSeconds"`
 }
 
 type store struct{ db *sql.DB }
@@ -164,7 +237,75 @@ CREATE TABLE IF NOT EXISTS updates (
 	url TEXT NOT NULL,
 	sort_order INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS subscriptions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	type TEXT NOT NULL,
+	name TEXT NOT NULL,
+	url TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	interval_seconds INTEGER NOT NULL DEFAULT 900,
+	last_checked_at TEXT,
+	last_error TEXT NOT NULL DEFAULT '',
+	etag TEXT NOT NULL DEFAULT '',
+	last_modified TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS feed_items (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+	external_id TEXT NOT NULL,
+	title TEXT NOT NULL,
+	url TEXT NOT NULL,
+	published_at TEXT,
+	fetched_at TEXT NOT NULL,
+	UNIQUE(subscription_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_feed_items_published ON feed_items(published_at DESC, id DESC);
 `)
+	if err != nil {
+		return err
+	}
+	columns := map[string]string{
+		"categories": "icon_kind TEXT NOT NULL DEFAULT 'builtin', icon_url TEXT NOT NULL DEFAULT ''",
+		"links":      "icon_kind TEXT NOT NULL DEFAULT 'builtin', icon_url TEXT NOT NULL DEFAULT '', connectivity_enabled INTEGER NOT NULL DEFAULT 1",
+		"services":   "enabled INTEGER NOT NULL DEFAULT 1, check_type TEXT NOT NULL DEFAULT 'none', target TEXT NOT NULL DEFAULT '', port INTEGER, source_status TEXT NOT NULL DEFAULT 'unknown', source_updated_at TEXT NOT NULL DEFAULT '', source_error TEXT NOT NULL DEFAULT ''",
+	}
+	for table, definition := range columns {
+		for _, column := range strings.Split(definition, ", ") {
+			name := strings.Fields(column)[0]
+			if err := ensureColumn(db, table, name, column); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ensureColumn(db *sql.DB, table, name, definition string) error {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var found bool
+	for rows.Next() {
+		var cid int
+		var column, columnType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &column, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if column == name {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + definition)
 	return err
 }
 
@@ -310,8 +451,16 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 	result.Settings.DefaultEngine = settings["default_engine"]
 	result.Settings.WeatherLocation = settings["weather_location"]
 	result.Settings.Timezone = settings["timezone"]
+	result.Settings.Appearance = appearanceSettings{
+		Theme:        defaultString(settings["theme_default"], "system"),
+		ClockStyle:   defaultString(settings["clock_style"], "plain"),
+		Clock24Hour:  settings["clock_24_hour"] != "false",
+		ClockSeconds: settings["clock_seconds"] == "true",
+		ClockColor:   defaultString(settings["clock_color"], "#2f6ff3"),
+		ClockSpeed:   defaultInt(parseInt(settings["clock_speed"]), 1),
+	}
 
-	categoryRows, err := s.db.Query("SELECT id, name, description, icon, visible FROM categories WHERE visible = 1 ORDER BY sort_order, id")
+	categoryRows, err := s.db.Query("SELECT id, name, description, icon, icon_kind, icon_url, visible FROM categories WHERE visible = 1 ORDER BY sort_order, id")
 	if err != nil {
 		return result, err
 	}
@@ -319,7 +468,7 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 	for categoryRows.Next() {
 		var item category
 		var visible int
-		if err := categoryRows.Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &visible); err != nil {
+		if err := categoryRows.Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &item.IconKind, &item.IconURL, &visible); err != nil {
 			categoryRows.Close()
 			return result, err
 		}
@@ -339,16 +488,23 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 		result.Categories = append(result.Categories, categoryItems[i])
 	}
 
-	serviceRows, err := s.db.Query("SELECT id, name, status, latency_ms, updated_at FROM services ORDER BY id")
+	serviceRows, err := s.db.Query("SELECT id, name, status, latency_ms, updated_at, enabled, check_type, target, port, source_status, source_updated_at, source_error FROM services ORDER BY id")
 	if err != nil {
 		return result, err
 	}
 	for serviceRows.Next() {
 		var item serviceStatus
 		var latency sql.NullInt64
-		if err := serviceRows.Scan(&item.ID, &item.Name, &item.Status, &latency, &item.UpdatedAt); err != nil {
+		var port sql.NullInt64
+		var enabled int
+		if err := serviceRows.Scan(&item.ID, &item.Name, &item.Status, &latency, &item.UpdatedAt, &enabled, &item.CheckType, &item.Target, &port, &item.SourceStatus, &item.SourceUpdatedAt, &item.SourceError); err != nil {
 			serviceRows.Close()
 			return result, err
+		}
+		item.Enabled = enabled == 1
+		if port.Valid {
+			value := int(port.Int64)
+			item.Port = &value
 		}
 		if latency.Valid {
 			value := int(latency.Int64)
@@ -371,11 +527,238 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 		result.Updates = append(result.Updates, item)
 	}
 	updateRows.Close()
+	feedRows, feedErr := s.db.Query("SELECT f.id, s.type, f.title, f.url, s.id, COALESCE(f.published_at, '') FROM feed_items f JOIN subscriptions s ON s.id = f.subscription_id WHERE s.enabled = 1 ORDER BY COALESCE(f.published_at, f.fetched_at) DESC, f.id DESC LIMIT 50")
+	if feedErr != nil {
+		return result, feedErr
+	}
+	for feedRows.Next() {
+		var item updateItem
+		var sourceType string
+		var subscriptionID int
+		if err := feedRows.Scan(&item.ID, &sourceType, &item.Title, &item.URL, &subscriptionID, &item.PublishedAt); err != nil {
+			feedRows.Close()
+			return result, err
+		}
+		item.SubscriptionID = &subscriptionID
+		item.Source = strings.ToUpper(sourceType)
+		if item.Source == "GITHUB" {
+			item.Source = "GitHub"
+		}
+		if item.Source == "YOUTUBE" {
+			item.Source = "YouTube"
+		}
+		if item.Source == "RSS" {
+			item.Source = "RSS"
+		}
+		item.Time = defaultString(item.PublishedAt, "刚刚")
+		result.Updates = append(result.Updates, item)
+	}
+	feedRows.Close()
+	result.Subscriptions, err = s.subscriptions()
+	if err != nil {
+		return result, err
+	}
+	result.Network = networkInfo{Status: "unavailable"}
 	return result, nil
 }
 
+func defaultInt(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func parseInt(value string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func (s *store) subscriptions() ([]subscription, error) {
+	rows, err := s.db.Query("SELECT id, type, name, url, enabled, interval_seconds, COALESCE(last_checked_at, ''), COALESCE(last_error, ''), (SELECT COUNT(*) FROM feed_items f WHERE f.subscription_id = subscriptions.id) FROM subscriptions ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]subscription, 0)
+	for rows.Next() {
+		var item subscription
+		var enabled int
+		if err := rows.Scan(&item.ID, &item.Type, &item.Name, &item.URL, &enabled, &item.IntervalSeconds, &item.LastCheckedAt, &item.LastError, &item.ItemCount); err != nil {
+			return nil, err
+		}
+		item.Enabled = enabled == 1
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *store) insertSubscription(payload subscriptionPayload) (subscription, error) {
+	interval := defaultInt(payload.IntervalSeconds, 900)
+	result, err := s.db.Exec("INSERT INTO subscriptions(type, name, url, enabled, interval_seconds) VALUES (?, ?, ?, ?, ?)", payload.Type, defaultString(payload.Name, payload.URL), payload.URL, boolInt(payload.Enabled), interval)
+	if err != nil {
+		return subscription{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return subscription{}, err
+	}
+	return s.subscriptionByID(int(id))
+}
+
+func (s *store) subscriptionByID(id int) (subscription, error) {
+	var item subscription
+	var enabled int
+	if err := s.db.QueryRow("SELECT id, type, name, url, enabled, interval_seconds, COALESCE(last_checked_at, ''), COALESCE(last_error, ''), (SELECT COUNT(*) FROM feed_items f WHERE f.subscription_id = subscriptions.id) FROM subscriptions WHERE id = ?", id).Scan(&item.ID, &item.Type, &item.Name, &item.URL, &enabled, &item.IntervalSeconds, &item.LastCheckedAt, &item.LastError, &item.ItemCount); err != nil {
+		return item, err
+	}
+	item.Enabled = enabled == 1
+	return item, nil
+}
+
+func (s *store) updateSubscription(id int, payload subscriptionPayload) (subscription, error) {
+	interval := defaultInt(payload.IntervalSeconds, 900)
+	if _, err := s.db.Exec("UPDATE subscriptions SET type = ?, name = ?, url = ?, enabled = ?, interval_seconds = ? WHERE id = ?", payload.Type, defaultString(payload.Name, payload.URL), payload.URL, boolInt(payload.Enabled), interval, id); err != nil {
+		return subscription{}, err
+	}
+	return s.subscriptionByID(id)
+}
+
+func mustSubscriptions(s *store) []subscription { items, _ := s.subscriptions(); return items }
+
+type rssFeed struct {
+	Channel struct {
+		Items []rssItem `xml:"item"`
+	} `xml:"channel"`
+	Entries []atomItem `xml:"entry"`
+}
+type rssItem struct {
+	GUID        string `xml:"guid"`
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	PubDate     string `xml:"pubDate"`
+	Description string `xml:"description"`
+}
+type atomItem struct {
+	ID    string `xml:"id"`
+	Title string `xml:"title"`
+	Link  struct {
+		Href string `xml:"href,attr"`
+	} `xml:"link"`
+	Updated   string `xml:"updated"`
+	Published string `xml:"published"`
+}
+
+type githubRelease struct {
+	ID          int64  `json:"id"`
+	TagName     string `json:"tag_name"`
+	Name        string `json:"name"`
+	HTMLURL     string `json:"html_url"`
+	PublishedAt string `json:"published_at"`
+}
+
+func (s *store) refreshSubscription(id int) error {
+	var item subscription
+	var enabled int
+	if err := s.db.QueryRow("SELECT id, type, name, url, enabled, interval_seconds FROM subscriptions WHERE id = ?", id).Scan(&item.ID, &item.Type, &item.Name, &item.URL, &enabled, &item.IntervalSeconds); err != nil {
+		return err
+	}
+	if enabled == 0 {
+		return errors.New("订阅已停用")
+	}
+	target := item.URL
+	if item.Type == "github" {
+		parts := strings.Split(strings.Trim(item.URL, "/"), "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return s.markSubscriptionError(id, "GitHub 源需要 owner/repo")
+		}
+		target = "https://api.github.com/repos/" + parts[0] + "/" + parts[1] + "/releases?per_page=20"
+	}
+	if !safeExternalHTTPURL(target) {
+		return s.markSubscriptionError(id, "订阅地址无法通过安全检查")
+	}
+	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("重定向次数过多")
+		}
+		if !safeExternalHTTPURL(req.URL.String()) {
+			return errors.New("重定向地址不安全")
+		}
+		return nil
+	}}
+	request, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return s.markSubscriptionError(id, "订阅地址不正确")
+	}
+	request.Header.Set("User-Agent", "KitonyNav/0.0.2")
+	response, err := client.Do(request)
+	if err != nil {
+		return s.markSubscriptionError(id, "订阅请求失败："+err.Error())
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return s.markSubscriptionError(id, fmt.Sprintf("订阅返回 HTTP %d", response.StatusCode))
+	}
+	var feedItems []struct{ externalID, title, url, published string }
+	if item.Type == "github" {
+		var releases []githubRelease
+		if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
+			return s.markSubscriptionError(id, "GitHub 响应格式不正确")
+		}
+		for _, release := range releases {
+			title := defaultString(release.Name, release.TagName)
+			feedItems = append(feedItems, struct{ externalID, title, url, published string }{strconv.FormatInt(release.ID, 10), title, release.HTMLURL, release.PublishedAt})
+		}
+	} else {
+		var feed rssFeed
+		if err := xml.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&feed); err != nil {
+			return s.markSubscriptionError(id, "RSS/Atom 响应格式不正确")
+		}
+		for _, entry := range feed.Channel.Items {
+			key := defaultString(entry.GUID, entry.Link)
+			if key != "" && entry.Title != "" {
+				feedItems = append(feedItems, struct{ externalID, title, url, published string }{key, entry.Title, entry.Link, entry.PubDate})
+			}
+		}
+		for _, entry := range feed.Entries {
+			key := defaultString(entry.ID, entry.Link.Href)
+			if key != "" && entry.Title != "" {
+				published := defaultString(entry.Published, entry.Updated)
+				feedItems = append(feedItems, struct{ externalID, title, url, published string }{key, entry.Title, entry.Link.Href, published})
+			}
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, feedItem := range feedItems {
+		if _, err := tx.Exec("INSERT INTO feed_items(subscription_id, external_id, title, url, published_at, fetched_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(subscription_id, external_id) DO UPDATE SET title = excluded.title, url = excluded.url, published_at = excluded.published_at, fetched_at = excluded.fetched_at", id, feedItem.externalID, feedItem.title, feedItem.url, feedItem.published, now); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("DELETE FROM feed_items WHERE subscription_id = ? AND id NOT IN (SELECT id FROM feed_items WHERE subscription_id = ? ORDER BY COALESCE(published_at, fetched_at) DESC, id DESC LIMIT 200)", id, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE subscriptions SET last_checked_at = ?, last_error = '' WHERE id = ?", now, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *store) markSubscriptionError(id int, message string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = s.db.Exec("UPDATE subscriptions SET last_checked_at = ?, last_error = ? WHERE id = ?", now, message, id)
+	return fmt.Errorf("%s", message)
+}
+
 func (s *store) linksForCategory(categoryID int) ([]link, error) {
-	rows, err := s.db.Query("SELECT id, name, description, url, icon, category_id, featured, visible FROM links WHERE category_id = ? AND visible = 1 ORDER BY sort_order, id", categoryID)
+	rows, err := s.db.Query("SELECT id, name, description, url, icon, icon_kind, icon_url, category_id, featured, visible, connectivity_enabled FROM links WHERE category_id = ? AND visible = 1 ORDER BY sort_order, id", categoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -383,19 +766,20 @@ func (s *store) linksForCategory(categoryID int) ([]link, error) {
 	result := make([]link, 0)
 	for rows.Next() {
 		var item link
-		var featured, visible int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.URL, &item.Icon, &item.CategoryID, &featured, &visible); err != nil {
+		var featured, visible, connectivityEnabled int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.URL, &item.Icon, &item.IconKind, &item.IconURL, &item.CategoryID, &featured, &visible, &connectivityEnabled); err != nil {
 			return nil, err
 		}
 		item.Featured = featured == 1
 		item.Visible = visible == 1
+		item.ConnectivityEnabled = connectivityEnabled == 1
 		result = append(result, item)
 	}
 	return result, nil
 }
 
 func (s *store) insertCategory(payload categoryPayload) (category, error) {
-	result, err := s.db.Exec("INSERT INTO categories(name, description, icon, sort_order) SELECT ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1 FROM categories", payload.Name, payload.Description, defaultString(payload.Icon, "folder"))
+	result, err := s.db.Exec("INSERT INTO categories(name, description, icon, icon_kind, icon_url, sort_order) SELECT ?, ?, ?, ?, ?, COALESCE(MAX(sort_order), 0) + 1 FROM categories", payload.Name, payload.Description, defaultString(payload.Icon, "folder"), defaultString(payload.IconKind, "builtin"), strings.TrimSpace(payload.IconURL))
 	if err != nil {
 		return category{}, err
 	}
@@ -403,11 +787,11 @@ func (s *store) insertCategory(payload categoryPayload) (category, error) {
 	if err != nil {
 		return category{}, err
 	}
-	return category{ID: int(id), Name: payload.Name, Description: payload.Description, Icon: defaultString(payload.Icon, "folder"), Visible: true, Links: []link{}}, nil
+	return category{ID: int(id), Name: payload.Name, Description: payload.Description, Icon: defaultString(payload.Icon, "folder"), IconKind: defaultString(payload.IconKind, "builtin"), IconURL: strings.TrimSpace(payload.IconURL), Visible: true, Links: []link{}}, nil
 }
 
 func (s *store) updateCategory(id int, payload categoryPayload) (category, error) {
-	if _, err := s.db.Exec("UPDATE categories SET name = ?, description = ?, icon = ? WHERE id = ?", payload.Name, payload.Description, defaultString(payload.Icon, "folder"), id); err != nil {
+	if _, err := s.db.Exec("UPDATE categories SET name = ?, description = ?, icon = ?, icon_kind = ?, icon_url = ? WHERE id = ?", payload.Name, payload.Description, defaultString(payload.Icon, "folder"), defaultString(payload.IconKind, "builtin"), strings.TrimSpace(payload.IconURL), id); err != nil {
 		return category{}, err
 	}
 	return s.categoryByID(id)
@@ -416,7 +800,7 @@ func (s *store) updateCategory(id int, payload categoryPayload) (category, error
 func (s *store) categoryByID(id int) (category, error) {
 	var item category
 	var visible int
-	if err := s.db.QueryRow("SELECT id, name, description, icon, visible FROM categories WHERE id = ?", id).Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &visible); err != nil {
+	if err := s.db.QueryRow("SELECT id, name, description, icon, icon_kind, icon_url, visible FROM categories WHERE id = ?", id).Scan(&item.ID, &item.Name, &item.Description, &item.Icon, &item.IconKind, &item.IconURL, &visible); err != nil {
 		return item, err
 	}
 	item.Visible = visible == 1
@@ -426,30 +810,34 @@ func (s *store) categoryByID(id int) (category, error) {
 }
 
 func (s *store) insertLink(payload linkPayload) (link, error) {
-	if _, err := s.db.Exec("INSERT INTO links(category_id, name, description, url, icon, featured, visible, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) FROM links WHERE category_id = ?), 0) + 1)", payload.CategoryID, payload.Name, payload.Description, payload.URL, defaultString(payload.Icon, "globe"), boolInt(payload.Featured), boolInt(payload.Visible), payload.CategoryID); err != nil {
+	if _, err := s.db.Exec("INSERT INTO links(category_id, name, description, url, icon, icon_kind, icon_url, featured, visible, connectivity_enabled, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) FROM links WHERE category_id = ?), 0) + 1)", payload.CategoryID, payload.Name, payload.Description, payload.URL, defaultString(payload.Icon, "globe"), defaultString(payload.IconKind, "builtin"), strings.TrimSpace(payload.IconURL), boolInt(payload.Featured), boolInt(payload.Visible), boolInt(payload.ConnectivityEnabled), payload.CategoryID); err != nil {
 		return link{}, err
 	}
 	var result link
 	var featured, visible int
-	if err := s.db.QueryRow("SELECT id, name, description, url, icon, category_id, featured, visible FROM links WHERE id = last_insert_rowid()").Scan(&result.ID, &result.Name, &result.Description, &result.URL, &result.Icon, &result.CategoryID, &featured, &visible); err != nil {
+	var connectivityEnabled int
+	if err := s.db.QueryRow("SELECT id, name, description, url, icon, icon_kind, icon_url, category_id, featured, visible, connectivity_enabled FROM links WHERE id = last_insert_rowid()").Scan(&result.ID, &result.Name, &result.Description, &result.URL, &result.Icon, &result.IconKind, &result.IconURL, &result.CategoryID, &featured, &visible, &connectivityEnabled); err != nil {
 		return result, err
 	}
 	result.Featured = featured == 1
 	result.Visible = visible == 1
+	result.ConnectivityEnabled = connectivityEnabled == 1
 	return result, nil
 }
 
 func (s *store) updateLink(id int, payload linkPayload) (link, error) {
-	if _, err := s.db.Exec("UPDATE links SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, featured = ?, visible = ? WHERE id = ?", payload.CategoryID, payload.Name, payload.Description, payload.URL, defaultString(payload.Icon, "globe"), boolInt(payload.Featured), boolInt(payload.Visible), id); err != nil {
+	if _, err := s.db.Exec("UPDATE links SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, icon_kind = ?, icon_url = ?, featured = ?, visible = ?, connectivity_enabled = ? WHERE id = ?", payload.CategoryID, payload.Name, payload.Description, payload.URL, defaultString(payload.Icon, "globe"), defaultString(payload.IconKind, "builtin"), strings.TrimSpace(payload.IconURL), boolInt(payload.Featured), boolInt(payload.Visible), boolInt(payload.ConnectivityEnabled), id); err != nil {
 		return link{}, err
 	}
 	var result link
 	var featured, visible int
-	if err := s.db.QueryRow("SELECT id, name, description, url, icon, category_id, featured, visible FROM links WHERE id = ?", id).Scan(&result.ID, &result.Name, &result.Description, &result.URL, &result.Icon, &result.CategoryID, &featured, &visible); err != nil {
+	var connectivityEnabled int
+	if err := s.db.QueryRow("SELECT id, name, description, url, icon, icon_kind, icon_url, category_id, featured, visible, connectivity_enabled FROM links WHERE id = ?", id).Scan(&result.ID, &result.Name, &result.Description, &result.URL, &result.Icon, &result.IconKind, &result.IconURL, &result.CategoryID, &featured, &visible, &connectivityEnabled); err != nil {
 		return result, err
 	}
 	result.Featured = featured == 1
 	result.Visible = visible == 1
+	result.ConnectivityEnabled = connectivityEnabled == 1
 	return result, nil
 }
 
@@ -460,6 +848,12 @@ func (s *store) updateSettings(payload settingsPayload) error {
 		"default_engine":    defaultString(payload.DefaultEngine, "Google"),
 		"weather_location":  defaultString(payload.WeatherLocation, "上海市"),
 		"timezone":          defaultString(payload.Timezone, "Asia/Shanghai"),
+		"theme_default":     defaultEnum(payload.Theme, "system", "system", "light", "dark"),
+		"clock_style":       defaultEnum(payload.ClockStyle, "plain", "plain", "flip", "ticker", "glow"),
+		"clock_24_hour":     strconv.FormatBool(payload.Clock24Hour),
+		"clock_seconds":     strconv.FormatBool(payload.ClockSeconds),
+		"clock_color":       defaultString(payload.ClockColor, "#2f6ff3"),
+		"clock_speed":       strconv.Itoa(defaultInt(payload.ClockSpeed, 1)),
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -472,6 +866,111 @@ func (s *store) updateSettings(payload settingsPayload) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func defaultEnum(value, fallback string, allowed ...string) string {
+	value = strings.TrimSpace(value)
+	for _, candidate := range allowed {
+		if value == candidate {
+			return value
+		}
+	}
+	return fallback
+}
+
+func (s *store) services() ([]serviceStatus, error) {
+	rows, err := s.db.Query("SELECT id, name, status, latency_ms, updated_at, enabled, check_type, target, port, source_status, source_updated_at, source_error FROM services ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]serviceStatus, 0)
+	for rows.Next() {
+		var item serviceStatus
+		var latency, port sql.NullInt64
+		var enabled int
+		if err := rows.Scan(&item.ID, &item.Name, &item.Status, &latency, &item.UpdatedAt, &enabled, &item.CheckType, &item.Target, &port, &item.SourceStatus, &item.SourceUpdatedAt, &item.SourceError); err != nil {
+			return nil, err
+		}
+		item.Enabled = enabled == 1
+		if latency.Valid {
+			value := int(latency.Int64)
+			item.LatencyMS = &value
+		}
+		if port.Valid {
+			value := int(port.Int64)
+			item.Port = &value
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *store) insertService(payload servicePayload) (serviceStatus, error) {
+	checkType := defaultEnum(payload.CheckType, "none", "none", "http", "tcp")
+	if checkType == "http" && !validHTTPURL(payload.Target) {
+		return serviceStatus{}, errors.New("HTTP 检查地址不正确")
+	}
+	if checkType == "tcp" && (strings.TrimSpace(payload.Target) == "" || payload.Port < 1 || payload.Port > 65535) {
+		return serviceStatus{}, errors.New("TCP 检查目标或端口不正确")
+	}
+	result, err := s.db.Exec("INSERT INTO services(name, status, updated_at, enabled, check_type, target, port, source_status) VALUES (?, 'unknown', ?, ?, ?, ?, ?, 'unknown')", defaultString(payload.Name, "未命名服务"), time.Now().UTC().Format(time.RFC3339), boolInt(payload.Enabled), checkType, strings.TrimSpace(payload.Target), nullablePort(payload.Port))
+	if err != nil {
+		return serviceStatus{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return serviceStatus{}, err
+	}
+	items, err := s.services()
+	if err != nil {
+		return serviceStatus{}, err
+	}
+	for _, item := range items {
+		if item.ID == int(id) {
+			return item, nil
+		}
+	}
+	return serviceStatus{}, sql.ErrNoRows
+}
+
+func (s *store) updateService(id int, payload servicePayload) (serviceStatus, error) {
+	checkType := defaultEnum(payload.CheckType, "none", "none", "http", "tcp")
+	if checkType == "http" && !validHTTPURL(payload.Target) {
+		return serviceStatus{}, errors.New("HTTP 检查地址不正确")
+	}
+	if checkType == "tcp" && (strings.TrimSpace(payload.Target) == "" || payload.Port < 1 || payload.Port > 65535) {
+		return serviceStatus{}, errors.New("TCP 检查目标或端口不正确")
+	}
+	if _, err := s.db.Exec("UPDATE services SET name = ?, enabled = ?, check_type = ?, target = ?, port = ?, status = CASE WHEN check_type <> ? OR target <> ? OR COALESCE(port, 0) <> ? THEN 'unknown' ELSE status END WHERE id = ?", defaultString(payload.Name, "未命名服务"), boolInt(payload.Enabled), checkType, strings.TrimSpace(payload.Target), nullablePort(payload.Port), checkType, strings.TrimSpace(payload.Target), payload.Port, id); err != nil {
+		return serviceStatus{}, err
+	}
+	for _, item := range mustServices(s) {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return serviceStatus{}, sql.ErrNoRows
+}
+
+func mustServices(s *store) []serviceStatus { items, _ := s.services(); return items }
+
+func nullablePort(port int) any {
+	if port <= 0 {
+		return nil
+	}
+	return port
+}
+
+func (s *store) deleteService(id int) error {
+	_, err := s.db.Exec("DELETE FROM services WHERE id = ?", id)
+	return err
+}
+
+func (s *store) updateServiceResult(id int, status string, latency *int, sourceError string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.Exec("UPDATE services SET status = ?, latency_ms = ?, updated_at = ?, source_status = ?, source_updated_at = ?, source_error = ? WHERE id = ?", status, latency, now, status, now, sourceError, id)
+	return err
 }
 
 func defaultString(value, fallback string) string {
@@ -592,6 +1091,15 @@ func (s *appServer) routes() http.Handler {
 	mux.HandleFunc("PUT /api/v1/admin/links/{id}", s.requireWrite(s.handleUpdateLink))
 	mux.HandleFunc("DELETE /api/v1/admin/links/{id}", s.requireWrite(s.handleDeleteLink))
 	mux.HandleFunc("PUT /api/v1/admin/settings", s.requireWrite(s.handleUpdateSettings))
+	mux.HandleFunc("POST /api/v1/admin/services", s.requireWrite(s.handleCreateService))
+	mux.HandleFunc("PUT /api/v1/admin/services/{id}", s.requireWrite(s.handleUpdateService))
+	mux.HandleFunc("DELETE /api/v1/admin/services/{id}", s.requireWrite(s.handleDeleteService))
+	mux.HandleFunc("POST /api/v1/admin/services/{id}/refresh", s.requireWrite(s.handleRefreshService))
+	mux.HandleFunc("POST /api/v1/admin/subscriptions", s.requireWrite(s.handleCreateSubscription))
+	mux.HandleFunc("PUT /api/v1/admin/subscriptions/{id}", s.requireWrite(s.handleUpdateSubscription))
+	mux.HandleFunc("DELETE /api/v1/admin/subscriptions/{id}", s.requireWrite(s.handleDeleteSubscription))
+	mux.HandleFunc("POST /api/v1/admin/subscriptions/{id}/refresh", s.requireWrite(s.handleRefreshSubscription))
+	mux.HandleFunc("GET /api/v1/network/client", s.handleClientNetwork)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -674,7 +1182,7 @@ func (s *appServer) requireWrite(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *appServer) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	var payload categoryPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "分类名称不能为空")
 		return
 	}
@@ -693,7 +1201,7 @@ func (s *appServer) handleUpdateCategory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var payload categoryPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "分类名称不能为空")
 		return
 	}
@@ -724,7 +1232,7 @@ func (s *appServer) handleDeleteCategory(w http.ResponseWriter, r *http.Request)
 
 func (s *appServer) handleCreateLink(w http.ResponseWriter, r *http.Request) {
 	var payload linkPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "链接名称、地址或分类不正确")
 		return
 	}
@@ -743,7 +1251,7 @@ func (s *appServer) handleUpdateLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload linkPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "链接名称、地址或分类不正确")
 		return
 	}
@@ -790,11 +1298,291 @@ func (s *appServer) handleUpdateSettings(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, data)
 }
 
+func (s *appServer) handleCreateService(w http.ResponseWriter, r *http.Request) {
+	var payload servicePayload
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" {
+		writeError(w, http.StatusBadRequest, "服务名称不能为空")
+		return
+	}
+	item, err := s.store.insertService(payload)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *appServer) handleUpdateService(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "服务 ID 不正确")
+		return
+	}
+	var payload servicePayload
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" {
+		writeError(w, http.StatusBadRequest, "服务名称不能为空")
+		return
+	}
+	item, err := s.store.updateService(id, payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "服务不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *appServer) handleDeleteService(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "服务 ID 不正确")
+		return
+	}
+	if err := s.store.deleteService(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "删除服务失败")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *appServer) handleRefreshService(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "服务 ID 不正确")
+		return
+	}
+	items, err := s.store.services()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "读取服务失败")
+		return
+	}
+	var service serviceStatus
+	for _, item := range items {
+		if item.ID == id {
+			service = item
+			break
+		}
+	}
+	if service.ID == 0 {
+		writeError(w, http.StatusNotFound, "服务不存在")
+		return
+	}
+	if !service.Enabled {
+		writeError(w, http.StatusBadRequest, "服务已停用")
+		return
+	}
+	status, latency, checkErr := checkConfiguredService(service)
+	if err := s.store.updateServiceResult(id, status, latency, errorText(checkErr)); err != nil {
+		writeError(w, http.StatusInternalServerError, "保存服务状态失败")
+		return
+	}
+	if checkErr != nil {
+		writeError(w, http.StatusBadGateway, checkErr.Error())
+		return
+	}
+	updated, _ := s.store.services()
+	for _, item := range updated {
+		if item.ID == id {
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, service)
+}
+
+func checkConfiguredService(service serviceStatus) (string, *int, error) {
+	started := time.Now()
+	switch service.CheckType {
+	case "tcp":
+		if service.Target == "" || service.Port == nil {
+			return "unknown", nil, errors.New("TCP 目标未配置")
+		}
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(service.Target, strconv.Itoa(*service.Port)), 5*time.Second)
+		if err != nil {
+			return "offline", nil, err
+		}
+		_ = conn.Close()
+		latency := int(time.Since(started).Milliseconds())
+		return "online", &latency, nil
+	case "http":
+		if !validHTTPURL(service.Target) {
+			return "unknown", nil, errors.New("HTTP 目标未配置")
+		}
+		client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 2 {
+				return errors.New("重定向次数过多")
+			}
+			return nil
+		}}
+		request, err := http.NewRequest(http.MethodGet, service.Target, nil)
+		if err != nil {
+			return "unknown", nil, err
+		}
+		request.Header.Set("User-Agent", "KitonyNav/0.0.2")
+		response, err := client.Do(request)
+		if err != nil {
+			return "offline", nil, err
+		}
+		defer response.Body.Close()
+		_, _ = io.CopyN(io.Discard, response.Body, 64<<10)
+		latency := int(time.Since(started).Milliseconds())
+		if response.StatusCode >= 500 {
+			return "offline", &latency, fmt.Errorf("HTTP %d", response.StatusCode)
+		}
+		if response.StatusCode >= 400 {
+			return "degraded", &latency, fmt.Errorf("HTTP %d", response.StatusCode)
+		}
+		return "online", &latency, nil
+	default:
+		return "unknown", nil, errors.New("未配置检查方式")
+	}
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func (s *appServer) handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
+	var payload subscriptionPayload
+	if err := decodeJSON(r, &payload); err != nil || !validSubscription(payload) {
+		writeError(w, http.StatusBadRequest, "订阅类型、名称或地址不正确")
+		return
+	}
+	item, err := s.store.insertSubscription(payload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "保存订阅失败")
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (s *appServer) handleUpdateSubscription(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "订阅 ID 不正确")
+		return
+	}
+	var payload subscriptionPayload
+	if err := decodeJSON(r, &payload); err != nil || !validSubscription(payload) {
+		writeError(w, http.StatusBadRequest, "订阅类型、名称或地址不正确")
+		return
+	}
+	item, err := s.store.updateSubscription(id, payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "订阅不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "保存订阅失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (s *appServer) handleDeleteSubscription(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "订阅 ID 不正确")
+		return
+	}
+	if _, err := s.store.db.Exec("DELETE FROM subscriptions WHERE id = ?", id); err != nil {
+		writeError(w, http.StatusInternalServerError, "删除订阅失败")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *appServer) handleRefreshSubscription(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "订阅 ID 不正确")
+		return
+	}
+	if err := s.store.refreshSubscription(id); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	for _, item := range mustSubscriptions(s.store) {
+		if item.ID == id {
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "订阅不存在")
+}
+
+func validSubscription(payload subscriptionPayload) bool {
+	if payload.Type != "rss" && payload.Type != "github" && payload.Type != "youtube" {
+		return false
+	}
+	if payload.Type == "github" {
+		parts := strings.Split(strings.Trim(payload.URL, "/"), "/")
+		return len(parts) == 2 && parts[0] != "" && parts[1] != ""
+	}
+	return validHTTPURL(payload.URL)
+}
+
+func (s *appServer) handleClientNetwork(w http.ResponseWriter, r *http.Request) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		writeJSON(w, http.StatusOK, networkInfo{Status: "unavailable", Source: "http"})
+		return
+	}
+	family := "IPv4"
+	if ip.To4() == nil {
+		family = "IPv6"
+	}
+	writeJSON(w, http.StatusOK, networkInfo{Address: host, Family: family, Source: "http", Status: "available"})
+}
+
 func pathID(r *http.Request, key string) (int, error) { return strconv.Atoi(r.PathValue(key)) }
 
 func validHTTPURL(value string) bool {
 	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+func validIconSpec(kind, value string) bool {
+	kind = defaultString(kind, "builtin")
+	if kind == "builtin" {
+		return true
+	}
+	if kind != "url" {
+		return false
+	}
+	value = strings.TrimSpace(value)
+	return validHTTPURL(value) || (strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//"))
+}
+
+func safeExternalHTTPURL(value string) bool {
+	if !validHTTPURL(value) {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	addresses, err := net.LookupIP(host)
+	if err != nil || len(addresses) == 0 {
+		return false
+	}
+	for _, address := range addresses {
+		if address.IsLoopback() || address.IsPrivate() || address.IsLinkLocalUnicast() || address.IsUnspecified() || address.IsMulticast() {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeJSON(r *http.Request, target any) error {
@@ -870,6 +1658,7 @@ func staticMiddleware(api http.Handler, directory string) http.Handler {
 }
 
 func refreshLoop(ctx context.Context, data *store) {
+	refreshConfiguredData(data)
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -877,7 +1666,22 @@ func refreshLoop(ctx context.Context, data *store) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			refreshConfiguredData(data)
 			_, _ = data.db.Exec("INSERT INTO settings(key, value) VALUES ('last_refresh_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", time.Now().UTC().Format(time.RFC3339))
+		}
+	}
+}
+
+func refreshConfiguredData(data *store) {
+	for _, service := range mustServices(data) {
+		if service.Enabled && service.CheckType != "none" {
+			status, latency, err := checkConfiguredService(service)
+			_ = data.updateServiceResult(service.ID, status, latency, errorText(err))
+		}
+	}
+	for _, item := range mustSubscriptions(data) {
+		if item.Enabled {
+			_ = data.refreshSubscription(item.ID)
 		}
 	}
 }

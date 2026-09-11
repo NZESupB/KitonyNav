@@ -1,4 +1,4 @@
-import { fallbackBootstrap, type BootstrapData, type Category, type LinkItem } from "./data";
+import { fallbackBootstrap, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription } from "./data";
 
 export type SessionState = { authenticated: boolean; csrfToken?: string };
 
@@ -60,11 +60,13 @@ export async function logout() {
   return result;
 }
 
-export async function createCategory(payload: Pick<Category, "name" | "description" | "icon">) {
+export type CategoryPayload = { name: string; description: string; icon: string; iconKind?: "builtin" | "url"; iconUrl?: string };
+
+export async function createCategory(payload: CategoryPayload) {
   return request<Category>("/api/v1/admin/categories", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export async function updateCategory(id: number, payload: Pick<Category, "name" | "description" | "icon">) {
+export async function updateCategory(id: number, payload: CategoryPayload) {
   return request<Category>(`/api/v1/admin/categories/${id}`, { method: "PUT", body: JSON.stringify(payload) });
 }
 
@@ -90,6 +92,51 @@ export async function updateSettings(payload: {
   defaultEngine: string;
   weatherLocation: string;
   timezone: string;
+  theme: "system" | "light" | "dark";
+  clockStyle: "plain" | "flip" | "ticker" | "glow";
+  clock24Hour: boolean;
+  clockSeconds: boolean;
+  clockColor: string;
+  clockSpeed: number;
 }) {
   return request<BootstrapData>("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export type ServicePayload = { name: string; enabled: boolean; checkType: "none" | "http" | "tcp"; target: string; port: number };
+export type SubscriptionPayload = { type: "rss" | "github" | "youtube"; name: string; url: string; enabled: boolean; intervalSeconds: number };
+
+export async function createService(payload: ServicePayload) {
+  return request<ServiceStatus>("/api/v1/admin/services", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function updateService(id: number, payload: ServicePayload) {
+  return request<ServiceStatus>(`/api/v1/admin/services/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export async function deleteService(id: number) {
+  return request<void>(`/api/v1/admin/services/${id}`, { method: "DELETE" });
+}
+
+export async function refreshService(id: number) {
+  return request<ServiceStatus>(`/api/v1/admin/services/${id}/refresh`, { method: "POST" });
+}
+
+export async function createSubscription(payload: SubscriptionPayload) {
+  return request<Subscription>("/api/v1/admin/subscriptions", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function updateSubscription(id: number, payload: SubscriptionPayload) {
+  return request<Subscription>(`/api/v1/admin/subscriptions/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export async function deleteSubscription(id: number) {
+  return request<void>(`/api/v1/admin/subscriptions/${id}`, { method: "DELETE" });
+}
+
+export async function refreshSubscription(id: number) {
+  return request<Subscription>(`/api/v1/admin/subscriptions/${id}/refresh`, { method: "POST" });
+}
+
+export async function fetchClientNetwork() {
+  return request<{ address?: string; family?: string; source?: string; status: string }>("/api/v1/network/client");
 }

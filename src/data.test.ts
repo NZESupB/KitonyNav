@@ -13,5 +13,10 @@ describe("navigation bootstrap data", () => {
     expect(fallbackBootstrap.categories.slice(0, 3).map((category) => category.name)).toEqual(["常用", "开发", "工具"]);
     expect(fallbackBootstrap.categories.every((category) => category.links.length > 0)).toBe(true);
   });
-});
 
+  it("defaults device-aware appearance and connectivity settings", () => {
+    expect(fallbackBootstrap.settings.appearance?.theme).toBe("system");
+    expect(fallbackBootstrap.settings.appearance?.clockStyle).toBe("plain");
+    expect(fallbackBootstrap.categories[0].links.every((item) => item.connectivityEnabled)).toBe(true);
+  });
+});

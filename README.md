@@ -2,6 +2,13 @@
 
 React + Go 导航站原型，包含公开导航、动态聚合和单人后台管理。
 
+## v0.0.2 开发准备
+
+开发分支为 `dev`，当前已接入 v0.0.2 的第一版配置、外观和采集能力，探针闭环与发布验收仍在进行：
+
+- [开发计划与验收标准](docs/v0.0.2-plan.md)
+- [技术框架、数据模型与 API 草案](docs/v0.0.2-architecture.md)
+
 ## 本地开发
 
 先安装前端依赖：
@@ -24,6 +31,17 @@ npm run dev
 ```
 
 前端开发服务器会把 `/api` 请求代理到 `http://127.0.0.1:8080`。本地 Go 开发默认密码是 `kitony-dev`；使用 Docker 部署时，先在 `docker-compose.yml` 中把 `ADMIN_PASSWORD` 的占位值改成强密码。
+
+### 可选本机 TCP 探针
+
+需要在主页看到访问设备的真实 TCP 建连结果时，在同一台设备启动探针，并只把允许检测的目标加入 allowlist：
+
+```bash
+cd server
+go run ./cmd/kitonynav-probe --allow github.com:443,example.com:443
+```
+
+探针只监听 `127.0.0.1:4711`，未加入 allowlist 的目标会被拒绝。未启动探针时，主页自动回退到浏览器 HTTP 连通性检测。
 
 ## Docker
 
