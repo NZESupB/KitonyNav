@@ -1,0 +1,127 @@
+name: Publish Docker image
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "Docker/OCI Registry host, for example ghcr.io or docker.io"
+        required: false
+        default: "ghcr.io"
+        type: string
+      image:
+        description: "Image path without the Registry host, for example owner/kitonynav"
+        required: false
+        default: ""
+        type: string
+      tag:
+        description: "Image tag"
+        required: false
+        default: "latest"
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve image reference
+        id: image
+        env:
+          INPUT_REGISTRY: ${{ inputs.registry || 'ghcr.io' }}
+          INPUT_IMAGE: ${{ inputs.image || github.repository }}
+          INPUT_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          registry="${INPUT_REGISTRY#https://}"
+          registry="${registry#http://}"
+          registry="${registry%/}"
+          image="${INPUT_IMAGE#/}"
+          image="$(printf '%s' "$image" | tr '[:upper:]' '[:lower:]')"
+          tag="${INPUT_TAG:-latest}"
+
+          if [[ -z "$registry" || -z "$image" ]]; then
+            echo "::error::registry and image must not be empty."
+            exit 1
+          fi
+          if [[ "$registry" == */* ]]; then
+            echo "::error::registry must be a host name without a path."
+            exit 1
+          fi
+          if [[ "$tag" == "main" || "$tag" == "master" ]]; then
+            tag="latest"
+          fi
+          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::tag is not a valid Docker image tag."
+            exit 1
+          fi
+
+          image_ref="$registry/$image"
+          tags="$image_ref:$tag"
+          if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tags+=$'\n'"$image_ref:latest"
+          fi
+          {
+            echo "registry=$registry"
+            echo "image=$image_ref"
+            echo "tag=$tag"
+            echo "ref=$image_ref:$tag"
+            echo "tags<<EOF"
+            printf '%s\n' "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check external Registry credentials
+        if: steps.image.outputs.registry != 'ghcr.io'
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$REGISTRY_USERNAME" || -z "$REGISTRY_PASSWORD" ]]; then
+            echo "::error::Configure REGISTRY_USERNAME and REGISTRY_PASSWORD repository secrets for registries other than ghcr.io."
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        if: steps.image.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to external Registry
+        if: steps.image.outputs.registry != 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.image.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ steps.image.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

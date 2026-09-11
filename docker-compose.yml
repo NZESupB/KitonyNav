@@ -1,0 +1,24 @@
+services:
+  kitonynav:
+    image: ghcr.io/nzesupb/kitonynav:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATA_DIR: "/data"
+      STATIC_DIR: "/app/dist/client"
+      # Replace this placeholder before deployment.
+      ADMIN_PASSWORD: "change-this-password"
+      # Keep false for local HTTP; set true behind an HTTPS reverse proxy.
+      COOKIE_SECURE: "false"
+    volumes:
+      - kitonynav-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  kitonynav-data:
