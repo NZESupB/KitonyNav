@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
@@ -383,6 +383,24 @@ function AppShell() {
   );
 }
 
+const sidebarTransition = {
+  duration: 0.28,
+  ease: [0.2, 0.8, 0.2, 1] as const,
+};
+
+const labelTransition = (collapsed: boolean, delay = 0) => ({
+  duration: collapsed ? 0.12 : 0.22,
+  delay: collapsed ? 0 : 0.04 + delay,
+  ease: collapsed ? ("easeIn" as const) : ([0.16, 1, 0.3, 1] as const),
+});
+
+const labelAnim = (collapsed: boolean) => ({
+  opacity: collapsed ? 0 : 1,
+  x: collapsed ? -8 : 0,
+  width: collapsed ? 0 : ("auto" as const),
+  marginLeft: collapsed ? 0 : 10,
+});
+
 function Sidebar({
   data,
   collapsed,
@@ -403,42 +421,118 @@ function Sidebar({
   return (
     <>
       <AnimatePresence>
-        {mobileMenuOpen && <motion.button className="mobile-scrim" aria-label="关闭导航" onClick={() => setMobileMenuOpen(false)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />}
+        {mobileMenuOpen && (
+          <motion.button
+            className="mobile-scrim"
+            aria-label="关闭导航"
+            onClick={() => setMobileMenuOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+        )}
       </AnimatePresence>
-      <motion.aside className="sidebar" initial={false} animate={{ width: collapsed ? 82 : 252 }} transition={{ type: "spring", bounce: 0, duration: 0.38 }}>
+      <motion.aside
+        className="sidebar"
+        initial={false}
+        animate={{ width: collapsed ? 80 : 252 }}
+        transition={sidebarTransition}
+      >
         <div className="sidebar-inner">
           <div className="brand-lockup">
-            <div className="brand-mark"><img src="/favicon.svg" alt="" width="34" height="34" /></div>
-            {!collapsed && <div className="brand-name">{data.brand.name || "KitonyNav"}</div>}
+            <div className="sidebar-icon-slot">
+              <div className="brand-mark"><img src="/favicon.svg" alt="" width="34" height="34" /></div>
+            </div>
+            <motion.div
+              className="sidebar-text-slot"
+              initial={false}
+              animate={labelAnim(collapsed)}
+              transition={labelTransition(collapsed, 0)}
+            >
+              <div className="brand-name">{data.brand.name || "KitonyNav"}</div>
+            </motion.div>
           </div>
           <button className="mobile-close icon-button" onClick={() => setMobileMenuOpen(false)} aria-label="关闭导航"><X size={20} /></button>
           <nav className="primary-nav" aria-label="主导航">
-            <NavItem to="/" icon={<House size={19} />} label="首页" collapsed={collapsed} exact />
-            <NavItem to="/updates" icon={<MessageCircle size={19} />} label="动态" collapsed={collapsed} />
-            <NavItem to="/admin" icon={<Settings2 size={19} />} label="设置" collapsed={collapsed} />
+            <NavItem to="/" icon={<House size={19} />} label="首页" collapsed={collapsed} exact index={0} />
+            <NavItem to="/updates" icon={<MessageCircle size={19} />} label="动态" collapsed={collapsed} index={1} />
+            <NavItem to="/admin" icon={<Settings2 size={19} />} label="设置" collapsed={collapsed} index={2} />
           </nav>
           <div className="sidebar-rule" />
-          <div className="sidebar-section-heading">
-            {!collapsed && <span>收藏夹</span>}
+          <motion.div
+            className="sidebar-section-heading"
+            initial={false}
+            animate={{
+              opacity: collapsed ? 0 : 1,
+              height: collapsed ? 0 : 28,
+              minHeight: collapsed ? 0 : 28,
+              marginBottom: collapsed ? 0 : 6,
+            }}
+            transition={{
+              duration: collapsed ? 0.12 : 0.22,
+              delay: collapsed ? 0 : 0.05,
+              ease: collapsed ? "easeIn" : [0.16, 1, 0.3, 1],
+            }}
+            style={{ overflow: "hidden" }}
+          >
+            <span>收藏夹</span>
             <button className="icon-button subtle" title="添加收藏夹" aria-label="添加收藏夹"><Plus size={17} /></button>
-          </div>
+          </motion.div>
           <div className="sidebar-folders">
-            {data.categories.map((category) => (
-              <button
-                className={`folder-row ${activeCategory === category.id ? "selected" : ""}`}
-                key={category.id}
-                onClick={() => setActiveCategory(activeCategory === category.id ? null : category.id)}
-                title={collapsed ? category.name : undefined}
-              >
-                <ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={17} />
-                {!collapsed && <><span>{category.name}{category.name === "常用" ? "网站" : ""}</span><MoreHorizontal size={16} className="folder-more" /></>}
-              </button>
-            ))}
+            {data.categories.map((category, index) => {
+              const isSelected = activeCategory === category.id;
+              return (
+                <button
+                  className={`folder-row ${isSelected ? "selected" : ""}`}
+                  key={category.id}
+                  onClick={() => setActiveCategory(isSelected ? null : category.id)}
+                  title={collapsed ? category.name : undefined}
+                >
+                  {isSelected && (
+                    <motion.span
+                      layout="position"
+                      layoutId="sidebar-folder-active-pill"
+                      className="nav-pill-active"
+                      transition={{ type: "spring", bounce: 0.12, duration: 0.32 }}
+                    />
+                  )}
+                  <span className="sidebar-icon-slot">
+                    <ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={18} />
+                  </span>
+                  <motion.div
+                    className="sidebar-text-slot"
+                    initial={false}
+                    animate={labelAnim(collapsed)}
+                    transition={labelTransition(collapsed, 0.05 + index * 0.015)}
+                  >
+                    <div className="folder-text-content">
+                      <span className="folder-name">{category.name}{category.name === "常用" ? "网站" : ""}</span>
+                      <span className="folder-count">{category.links.length}</span>
+                    </div>
+                  </motion.div>
+                </button>
+              );
+            })}
           </div>
           <div className="sidebar-spacer" />
           <div className="sidebar-footer">
-            <button className="collapse-button" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "展开侧栏" : "收起侧栏"} aria-label={collapsed ? "展开侧栏" : "收起侧栏"}>
-              {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            <button
+              className="collapse-row nav-row"
+              onClick={() => setCollapsed(!collapsed)}
+              title={collapsed ? "展开侧栏" : "收起侧栏"}
+              aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            >
+              <span className="sidebar-icon-slot">
+                {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              </span>
+              <motion.span
+                className="sidebar-text-slot nav-row-label"
+                initial={false}
+                animate={labelAnim(collapsed)}
+                transition={labelTransition(collapsed, 0.1)}
+              >
+                收起侧栏
+              </motion.span>
             </button>
           </div>
         </div>
@@ -447,10 +541,44 @@ function Sidebar({
   );
 }
 
-function NavItem({ to, icon, label, collapsed, exact }: { to: string; icon: ReactNode; label: string; collapsed: boolean; exact?: boolean }) {
+function NavItem({
+  to,
+  icon,
+  label,
+  collapsed,
+  exact,
+  index = 0,
+}: {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  collapsed: boolean;
+  exact?: boolean;
+  index?: number;
+}) {
   return (
     <NavLink to={to} end={exact} className={({ isActive }) => `nav-row ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}>
-      {icon}<span className={collapsed ? "visually-hidden" : ""}>{label}</span>
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.span
+              layout="position"
+              layoutId="sidebar-nav-active-pill"
+              className="nav-pill-active"
+              transition={{ type: "spring", bounce: 0.12, duration: 0.32 }}
+            />
+          )}
+          <span className="sidebar-icon-slot">{icon}</span>
+          <motion.span
+            className="sidebar-text-slot nav-row-label"
+            initial={false}
+            animate={labelAnim(collapsed)}
+            transition={labelTransition(collapsed, 0.02 + index * 0.02)}
+          >
+            {label}
+          </motion.span>
+        </>
+      )}
     </NavLink>
   );
 }
@@ -482,6 +610,26 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
   const [engine, setEngine] = useState(() => resolveEngine(data.settings.defaultEngine));
   const [showAll, setShowAll] = useState(false);
   const navigate = useNavigate();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (event.key === "/" && document.activeElement !== searchInputRef.current) {
+        const target = event.target as HTMLElement | null;
+        if (target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA" && !target?.isContentEditable) {
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
   const visibleLinks = useMemo(() => data.categories.flatMap((category) => category.links), [data.categories]);
   const browserConnectivity = useBrowserConnectivity(visibleLinks);
   const linkProbeTargets = useMemo(() => visibleLinks.flatMap((item) => {
@@ -517,12 +665,12 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
   };
 
   return (
-    <main className="home-layout">
+    <motion.main className="home-layout route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
       <div className="home-main">
         <div className="search-wrap">
           <div className={`search-box ${query ? "has-value" : ""}`}>
             <Search size={22} strokeWidth={1.7} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") openSearch(); }} placeholder="搜索或输入网址" aria-label="搜索或输入网址" />
+            <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") openSearch(); }} placeholder="搜索或输入网址 (⌘K)" aria-label="搜索或输入网址" />
             <div className="search-actions">
               <select value={engine} onChange={(event) => setEngine(event.target.value)} aria-label="搜索引擎">
                 {engineOptions.map((option) => <option key={option}>{option}</option>)}
@@ -534,7 +682,7 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
             <span>快捷搜索</span>
             {engineOptions.map((option) => <button key={option} className={engine === option ? "active" : ""} onClick={() => setEngine(option)}>{option}</button>)}
             <span className="hint-divider" />
-            <button onClick={() => setQuery("!bd ")}>!bd</button><button onClick={() => setQuery("!yt ")}>!yt</button><button onClick={() => setQuery("!st ")}>!st</button>
+            <button className="bang-hint" onClick={() => setQuery("!bd ")}>!bd</button><button className="bang-hint" onClick={() => setQuery("!yt ")}>!yt</button><button className="bang-hint" onClick={() => setQuery("!st ")}>!st</button>
           </div>
         </div>
 
@@ -544,7 +692,21 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
         </div>
 
         <div className="directory-list">
-          {visibleCategories.slice(0, query || activeCategory !== null || showAll ? undefined : 3).map((category) => <CategorySection category={category} connectivity={connectivity} key={category.id} onMore={() => setActiveCategory(category.id)} />)}
+          {query && visibleCategories.length === 0 ? (
+            <div className="empty-search-state">
+              <div className="empty-search-icon"><Search size={22} /></div>
+              <h3>未找到与“{query}”相关的链接</h3>
+              <p>可以尝试更换搜索关键词，或直接点击下方按钮使用外部引擎搜索</p>
+              <div className="empty-search-actions">
+                <button className="quiet-button" onClick={() => setQuery("")}>清空输入</button>
+                <button className="primary-button" onClick={openSearch}>使用 {engine} 搜索</button>
+              </div>
+            </div>
+          ) : (
+            visibleCategories.slice(0, query || activeCategory !== null || showAll ? undefined : 3).map((category) => (
+              <CategorySection category={category} connectivity={connectivity} key={category.id} onMore={() => setActiveCategory(category.id)} />
+            ))
+          )}
         </div>
 
         {!query && activeCategory === null && visibleCategories.length > 3 && <button className="show-more-button" onClick={() => setShowAll(!showAll)}>{showAll ? "收起分类" : "查看全部分类"}<ChevronDown size={16} className={showAll ? "rotated" : ""} /></button>}
@@ -560,7 +722,7 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
         <StatusPanel services={data.services} localConnectivity={serviceConnectivity} />
         <UpdatesPanel updates={data.updates} />
       </aside>
-    </main>
+    </motion.main>
   );
 }
 
@@ -596,7 +758,40 @@ function StatusPanel({ services, compact = false, localConnectivity = {} }: { se
     <section className={`rail-panel status-panel ${compact ? "compact-panel" : ""}`}>
       <div className="panel-heading"><div><span className="panel-kicker"><Activity size={14} /> 服务状态</span>{!compact && <h3>你关注的服务</h3>}</div></div>
       <div className="status-list">
-        {services.filter((service) => service.enabled !== false).slice(0, compact ? 4 : 5).map((service) => { const localResult = localConnectivity[service.id]; return <div className="status-row" key={service.id}><span className={`status-dot ${service.checkType === "none" ? "unknown" : service.status}`} /><span className="status-name">{service.name}</span><span className={`status-label ${service.checkType === "none" ? "unknown" : service.status}`}>{statusLabel(service)}</span>{service.latencyMs != null && service.checkType !== "none" && !compact && <span className="status-latency">服务器 {service.latencyMs}ms</span>}{service.checkType && service.checkType !== "none" && !compact && <span className="status-source"><Wifi size={12} /> {service.checkType.toUpperCase()}</span>}{localResult && <span className={`connectivity-label ${localResult.state}`} title="访问设备上的本机探针结果">{localResult.latencyMs != null ? `本机 ${localResult.latencyMs}ms` : localResult.state === "checking" ? "本机检测中" : localResult.state === "unreachable" ? "本机失败" : "本机未确认"}</span>}</div>; })}
+        {services.filter((service) => service.enabled !== false).slice(0, compact ? 4 : 5).map((service) => {
+          const localResult = localConnectivity[service.id];
+          const hasMeta = (service.latencyMs != null && service.checkType !== "none" && !compact) || (service.checkType && service.checkType !== "none" && !compact) || localResult;
+          return (
+            <div className="status-row" key={service.id}>
+              <div className="status-row-main">
+                <span className={`status-dot ${service.checkType === "none" ? "unknown" : service.status}`} />
+                <span className="status-name" title={service.name}>{service.name}</span>
+                <span className={`status-label ${service.checkType === "none" ? "unknown" : service.status}`}>{statusLabel(service)}</span>
+              </div>
+              {hasMeta && (
+                <div className="status-row-sub">
+                  {service.latencyMs != null && service.checkType !== "none" && !compact && (
+                    <span className="status-meta-item">服务器 {service.latencyMs}ms</span>
+                  )}
+                  {localResult && (
+                    <>
+                      {service.latencyMs != null && !compact && <span className="status-meta-divider" />}
+                      <span className={`status-meta-item connectivity-label ${localResult.state}`} title="访问设备上的本机探针结果">
+                        {localResult.latencyMs != null ? `本机 ${localResult.latencyMs}ms` : localResult.state === "checking" ? "本机检测中" : localResult.state === "unreachable" ? "本机失败" : "本机未确认"}
+                      </span>
+                    </>
+                  )}
+                  {service.checkType && service.checkType !== "none" && !compact && (
+                    <>
+                      <span className="status-meta-divider" />
+                      <span className="status-meta-item status-source"><Wifi size={11} /> {service.checkType.toUpperCase()}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -608,6 +803,8 @@ function NetworkPanel() {
   const [geoInfo, setGeoInfo] = useState<VisitorGeo>({});
   const [userAgent] = useState(() => navigator.userAgent);
   const [expanded, setExpanded] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+
   useEffect(() => { fetchClientNetwork().then(setHttpInfo).catch(() => setHttpInfo({ status: "unavailable" })); }, []);
   useEffect(() => {
     let active = true;
@@ -628,12 +825,79 @@ function NetworkPanel() {
     const timer = window.setTimeout(() => peer.close(), 5000);
     return () => { active = false; window.clearTimeout(timer); peer.close(); };
   }, []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+    window.addEventListener("mousedown", handleOutside);
+    return () => window.removeEventListener("mousedown", handleOutside);
+  }, [expanded]);
+
   const ipAddress = geoInfo.ip || httpInfo.address || webrtcAddress || "无法确认";
   const location = geoInfo.location || "无法确认";
   const operator = [geoInfo.isp, geoInfo.asn].filter(Boolean).join(" · ") || "无法确认";
   const ipFamily = ipAddress.includes(":") ? "IPv6" : ipAddress.match(/^\d+(?:\.\d+){3}$/) ? "IPv4" : httpInfo.family || "检测中";
   const toggleExpanded = () => setExpanded((value) => !value);
-  return <aside className={`network-float ${expanded ? "expanded" : ""}`} aria-label="网络出口信息" role="button" tabIndex={0} aria-expanded={expanded} onClick={toggleExpanded} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleExpanded(); } }}><div className="network-float-summary"><span className="network-float-mark"><Globe2 size={14} /></span><span className="network-pill" title={location}>{location}</span><span className="network-pill network-pill-ip" title={ipAddress}>{ipAddress}</span><span className="network-float-source">{ipFamily}</span></div>{expanded && <dl className="network-float-details"><div><dt>IP 地址</dt><dd>{ipAddress}</dd></div><div><dt>位置</dt><dd>{location}</dd></div><div><dt>运营商</dt><dd>{operator}</dd></div><div><dt>UA</dt><dd title={userAgent}>{userAgent}</dd></div></dl>}</aside>;
+
+  return (
+    <>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            className="network-scrim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setExpanded(false)}
+          />
+        )}
+      </AnimatePresence>
+      <aside
+        ref={panelRef}
+        className={`network-float ${expanded ? "expanded" : ""}`}
+        aria-label="网络出口信息"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleExpanded(); } }}
+      >
+        <div className="network-float-summary">
+          <span className="network-float-mark"><Globe2 size={14} /></span>
+          <span className="network-pill" title={location}>{location}</span>
+          <span className="network-pill network-pill-ip" title={ipAddress}>{ipAddress}</span>
+          <span className="network-float-source">{ipFamily}</span>
+        </div>
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.div
+              className="network-details-anim"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{
+                height: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
+                opacity: { duration: 0.14 },
+              }}
+              style={{ overflow: "hidden" }}
+            >
+              <dl className="network-float-details">
+                <div><dt>IP 地址</dt><dd>{ipAddress}</dd></div>
+                <div><dt>位置</dt><dd>{location}</dd></div>
+                <div><dt>运营商</dt><dd>{operator}</dd></div>
+                <div><dt>UA</dt><dd title={userAgent}>{userAgent}</dd></div>
+              </dl>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </aside>
+    </>
+  );
 }
 
 function UpdatesPanel({ updates, compact = false }: { updates: UpdateItem[]; compact?: boolean }) {
@@ -653,11 +917,24 @@ function UpdatesPage({ data }: { data: BootstrapData }) {
   const [filter, setFilter] = useState<"全部" | UpdateItem["source"]>("全部");
   const updates = filter === "全部" ? data.updates : data.updates.filter((item) => item.source === filter);
   return (
-    <main className="page-content updates-page">
+    <motion.main className="page-content updates-page route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
       <div className="page-heading"><div><span className="eyebrow">订阅与缓存</span><h1>动态</h1><p>把 RSS、YouTube 和 GitHub 的更新放在一个安静的列表里。</p></div><button className="primary-button" onClick={() => queryClient.invalidateQueries({ queryKey: ["bootstrap"] })}><RefreshCw size={16} /> 刷新全部</button></div>
-      <div className="filter-tabs" role="tablist">{(["全部", "RSS", "YouTube", "GitHub"] as const).map((item) => <button role="tab" aria-selected={filter === item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div>
+      <div className="filter-tabs" role="tablist">
+        {(["全部", "RSS", "YouTube", "GitHub"] as const).map((item) => (
+          <button
+            role="tab"
+            aria-selected={filter === item}
+            className={filter === item ? "active" : ""}
+            onClick={() => setFilter(item)}
+            key={item}
+          >
+            {filter === item && <motion.span layoutId="active-filter-tab" className="tab-pill-active" transition={{ type: "spring", bounce: 0.15, duration: 0.35 }} />}
+            <span>{item}</span>
+          </button>
+        ))}
+      </div>
       <div className="updates-table">{updates.map((item) => <a className="updates-table-row" href={item.url} target="_blank" rel="noreferrer" key={item.id}><span className={`source-chip ${item.source.toLowerCase()}`}>{item.source === "RSS" ? <Rss size={14} /> : item.source === "YouTube" ? <SiYoutube size={15} /> : <SiGithub size={15} />}{item.source}</span><span className="updates-table-title">{item.title}</span><time>{item.time}</time><ArrowUpRight size={16} /></a>)}</div>
-    </main>
+    </motion.main>
   );
 }
 
@@ -715,18 +992,40 @@ function AdminPage({ data }: { data: BootstrapData }) {
   const startServiceEdit = (item: ServiceStatus) => { setEditingService(item); setServiceName(item.name); setServiceEnabled(item.enabled !== false); setServiceCheckType(item.checkType ?? "none"); setServiceTarget(item.target ?? ""); setServicePort(String(item.port ?? 443)); setTab("services"); };
   const startSubscriptionEdit = (item: Subscription) => { setEditingSubscription(item); setSubscriptionType(item.type); setSubscriptionName(item.name); setSubscriptionUrl(item.url); setSubscriptionEnabled(item.enabled); setSubscriptionInterval(String(item.intervalSeconds || 900)); setTab("subscriptions"); };
 
-  return <main className="page-content admin-page">
+  return <motion.main className="page-content admin-page route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
     <div className="page-heading"><div><span className="eyebrow">管理控制台</span><h1>设置</h1><p>内容保存后立即生效；服务和订阅按配置刷新。</p></div><div className={`admin-status ${session.data?.authenticated ? "" : "is-locked"}`}>{session.data?.authenticated ? <><ShieldCheck size={16} /> 已登录</> : <><LogIn size={16} /> 需要登录</>}</div></div>
     {!session.data?.authenticated && <form className="admin-login" onSubmit={(event) => { event.preventDefault(); loginMutation.mutate(); }}><div><span className="eyebrow">管理员访问</span><h2>登录后编辑导航</h2><p>公开页面无需登录，只有保存配置时需要管理员会话。</p></div><div className="admin-login-fields"><label><span className="visually-hidden">管理员密码</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="输入管理员密码" autoComplete="current-password" /></label><button className="primary-button" type="submit" disabled={!password || loginMutation.isPending}><LogIn size={16} /> {loginMutation.isPending ? "登录中" : "登录"}</button></div>{loginError && <span className="login-error">{loginError}</span>}</form>}
     {session.data?.authenticated && <div className="admin-account-bar"><span><Check size={15} /> 当前会话有效，修改会直接写入 SQLite</span><button className="quiet-button" onClick={() => logoutMutation.mutate()}><LogOut size={15} /> 退出</button></div>}
-    {session.data?.authenticated && <div className="admin-tabs" role="tablist"><button className={tab === "categories" ? "active" : ""} onClick={() => setTab("categories")}><LayoutGrid size={16} /> 分类</button><button className={tab === "links" ? "active" : ""} onClick={() => setTab("links")}><Link2 size={16} /> 链接</button><button className={tab === "services" ? "active" : ""} onClick={() => setTab("services")}><Activity size={16} /> 服务状态</button><button className={tab === "subscriptions" ? "active" : ""} onClick={() => setTab("subscriptions")}><Rss size={16} /> 动态订阅</button><button className={tab === "settings" ? "active" : ""} onClick={() => setTab("settings")}><SlidersHorizontal size={16} /> 外观</button></div>}
+    {session.data?.authenticated && (
+      <div className="admin-tabs" role="tablist">
+        {[
+          { id: "categories", label: "分类", icon: <LayoutGrid size={16} /> },
+          { id: "links", label: "链接", icon: <Link2 size={16} /> },
+          { id: "services", label: "服务状态", icon: <Activity size={16} /> },
+          { id: "subscriptions", label: "动态订阅", icon: <Rss size={16} /> },
+          { id: "settings", label: "外观", icon: <SlidersHorizontal size={16} /> },
+        ].map((item) => (
+          <button
+            role="tab"
+            aria-selected={tab === item.id}
+            className={tab === item.id ? "active" : ""}
+            onClick={() => setTab(item.id as typeof tab)}
+            key={item.id}
+          >
+            {tab === item.id && <motion.span layoutId="active-admin-tab" className="tab-pill-active" transition={{ type: "spring", bounce: 0.15, duration: 0.35 }} />}
+            {item.icon}
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    )}
     {feedback && <div className="feedback-banner"><Check size={16} /> {feedback}<button onClick={() => setFeedback("")} aria-label="关闭提示"><X size={15} /></button></div>}
     {session.data?.authenticated && tab === "categories" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">目录结构</span><h2>收藏夹</h2></div><button className="primary-button" onClick={() => { setEditingCategory(null); setCategoryName(""); setCategoryDescription(""); setCategoryIcon("folder"); setCategoryIconKind("builtin"); setCategoryIconUrl(""); }}><Plus size={16} /> 新增收藏夹</button></div><div className="admin-list">{data.categories.map((category) => <div className="admin-list-row" key={category.id}><span className="admin-drag">⋮⋮</span><span className="admin-item-icon"><ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={18} /></span><span className="admin-item-copy"><strong>{category.name}</strong><small>{category.description} · {category.links.length} 个链接</small></span><button className="icon-button subtle" onClick={() => startCategoryEdit(category)} title="编辑收藏夹"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => categoryDelete.mutate(category.id)} title="删除收藏夹"><Trash2 size={16} /></button></div>)}</div></section><CategoryForm editing={editingCategory} name={categoryName} description={categoryDescription} icon={categoryIcon} iconKind={categoryIconKind} iconUrl={categoryIconUrl} setName={setCategoryName} setDescription={setCategoryDescription} setIcon={setCategoryIcon} setIconKind={setCategoryIconKind} setIconUrl={setCategoryIconUrl} onSubmit={() => categoryMutation.mutate()} onCancel={() => setEditingCategory(null)} /></div>}
     {session.data?.authenticated && tab === "links" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">链接目录</span><h2>全部链接</h2></div><button className="primary-button" onClick={() => { setEditingLink(null); setLinkName(""); setLinkDescription(""); setLinkUrl(""); setLinkIcon("globe"); setLinkIconKind("builtin"); setLinkIconUrl(""); setLinkConnectivity(true); }}><Plus size={16} /> 新增链接</button></div><div className="admin-list">{data.categories.flatMap((category) => category.links.map((item) => ({ item, category }))).map(({ item, category }) => <div className="admin-list-row" key={item.id}><span className="admin-item-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={18} /></span><span className="admin-item-copy"><strong>{item.name}</strong><small>{category.name} · {item.url}</small></span><button className="icon-button subtle" onClick={() => startLinkEdit(item)} title="编辑链接"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => linkDelete.mutate(item.id)} title="删除链接"><Trash2 size={16} /></button></div>)}</div></section><LinkForm editing={editingLink} name={linkName} description={linkDescription} url={linkUrl} icon={linkIcon} iconKind={linkIconKind} iconUrl={linkIconUrl} connectivityEnabled={linkConnectivity} categoryId={linkCategory} categories={data.categories} setName={setLinkName} setDescription={setLinkDescription} setUrl={setLinkUrl} setIcon={setLinkIcon} setIconKind={setLinkIconKind} setIconUrl={setLinkIconUrl} setConnectivityEnabled={setLinkConnectivity} setCategoryId={setLinkCategory} onSubmit={() => linkMutation.mutate()} onCancel={() => setEditingLink(null)} /></div>}
     {session.data?.authenticated && tab === "services" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">关注清单</span><h2>服务状态</h2></div><button className="primary-button" onClick={() => { setEditingService(null); setServiceName(""); setServiceEnabled(true); setServiceCheckType("none"); setServiceTarget(""); setServicePort("443"); }}><Plus size={16} /> 新增服务</button></div><div className="admin-list">{data.services.map((item) => <div className="admin-list-row" key={item.id}><span className={`status-dot ${item.status}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.checkType === "none" ? "未配置检查" : `${(item.checkType ?? "none").toUpperCase()} · ${item.target || ""}${item.port ? `:${item.port}` : ""}`} · {item.status === "online" ? "正常" : item.status === "degraded" ? "异常" : item.status === "offline" ? "离线" : "待检查"}</small></span><button className="icon-button subtle" onClick={() => serviceRefresh.mutate(item.id)} title="刷新服务状态"><RefreshCw size={16} /></button><button className="icon-button subtle" onClick={() => startServiceEdit(item)} title="编辑服务"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => serviceDelete.mutate(item.id)} title="删除服务"><Trash2 size={16} /></button></div>)}</div></section><ServiceForm editing={editingService} name={serviceName} enabled={serviceEnabled} checkType={serviceCheckType ?? "none"} target={serviceTarget} port={servicePort} setName={setServiceName} setEnabled={setServiceEnabled} setCheckType={setServiceCheckType} setTarget={setServiceTarget} setPort={setServicePort} onSubmit={() => serviceMutation.mutate()} onCancel={() => setEditingService(null)} /></div>}
     {session.data?.authenticated && tab === "subscriptions" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">关注内容</span><h2>动态订阅</h2></div><button className="primary-button" onClick={() => { setEditingSubscription(null); setSubscriptionType("rss"); setSubscriptionName(""); setSubscriptionUrl(""); setSubscriptionEnabled(true); setSubscriptionInterval("900"); }}><Plus size={16} /> 新增订阅</button></div><div className="admin-list">{(data.subscriptions ?? []).map((item) => <div className="admin-list-row" key={item.id}><span className={`source-dot ${item.type}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.type.toUpperCase()} · {item.itemCount ?? 0} 条缓存{item.lastError ? ` · ${item.lastError}` : ""}</small></span><button className="icon-button subtle" onClick={() => subscriptionRefresh.mutate(item.id)} title="刷新订阅"><RefreshCw size={16} /></button><button className="icon-button subtle" onClick={() => startSubscriptionEdit(item)} title="编辑订阅"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => subscriptionDelete.mutate(item.id)} title="删除订阅"><Trash2 size={16} /></button></div>)}</div></section><SubscriptionForm editing={editingSubscription} type={subscriptionType} name={subscriptionName} url={subscriptionUrl} enabled={subscriptionEnabled} interval={subscriptionInterval} setType={setSubscriptionType} setName={setSubscriptionName} setUrl={setSubscriptionUrl} setEnabled={setSubscriptionEnabled} setInterval={setSubscriptionInterval} onSubmit={() => subscriptionMutation.mutate()} onCancel={() => setEditingSubscription(null)} /></div>}
     {session.data?.authenticated && tab === "settings" && <SettingsPanel data={data} />}
-  </main>;
+  </motion.main>;
 }
 
 function IconFields({ icon, iconKind, iconUrl, setIcon, setIconKind, setIconUrl }: { icon: string; iconKind: "builtin" | "url"; iconUrl: string; setIcon: (value: string) => void; setIconKind: (value: "builtin" | "url") => void; setIconUrl: (value: string) => void }) {
