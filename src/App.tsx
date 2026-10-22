@@ -1,83 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "motion/react";
+import { motion, MotionConfig, useReducedMotion } from "motion/react";
+import { Dialog, DropdownMenu, Popover, Tabs } from "radix-ui";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
-import type { IconType } from "react-icons";
 import {
-  Activity,
-  ArrowUpRight,
-  BookOpen,
-  Braces,
-  BriefcaseBusiness,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  CircleHelp,
-  Cloud,
-  CloudSun,
-  Code2,
-  Coffee,
-  Command,
-  Edit3,
-  Globe2,
-  House,
-  Image,
-  Languages,
-  LayoutGrid,
-  Link2,
-  LogIn,
-  LogOut,
-  MapPin,
-  Menu,
-  MessageCircle,
-  Moon,
-  MoreHorizontal,
-  Newspaper,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Palette,
-  Plane,
-  Plus,
-  QrCode,
-  RefreshCw,
-  Rss,
-  Search,
-  Settings2,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  Star,
-  Sun,
-  Trash2,
-  Wrench,
-  X,
-  Clock3,
-  Music2,
-  Wallet,
-  Wifi,
+  Activity, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleHelp,
+  CloudSun, Clock3, Command, Edit3, Globe2, House, LayoutGrid, Link2, LogIn, LogOut,
+  Menu, MessageCircle, Moon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus,
+  RefreshCw, Rss, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, Wifi, X,
 } from "lucide-react";
-import {
-  SiBaidu,
-  SiBilibili,
-  SiCloudflare,
-  SiDocker,
-  SiFigma,
-  SiGitee,
-  SiGithub,
-  SiGitea,
-  SiGoogle,
-  SiJetbrains,
-  SiMdnwebdocs,
-  SiNetlify,
-  SiNpm,
-  SiNotion,
-  SiOpenai,
-  SiPostman,
-  SiReact,
-  SiStackoverflow,
-  SiVercel,
-  SiYoutube,
-} from "react-icons/si";
+import { ItemIcon, iconOptions } from "./components/icons/ItemIcon";
+import { useMediaQuery } from "./hooks/use-media-query";
+import { UI_STORAGE_KEY, useUIStore, type Theme } from "./stores/ui-store";
+import { useSaveMutation } from "./hooks/use-save-mutation";
+import { usePageVisible } from "./hooks/use-page-visible";
+import { ClockDisplay } from "./components/ClockDisplay";
 import {
   createCategory,
   createLink,
@@ -102,77 +39,11 @@ import {
 } from "./api";
 import { engineOptions, engineUrls, normalizeBootstrap, resolveEngine, type AppearanceSettings, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription, type UpdateItem } from "./data";
 
-type Theme = "system" | "light" | "dark";
-type IconKey = string;
-type LinkConnectivity = "reachable" | "unreachable" | "unknown" | "checking";
-type ConnectivityResult = { state: LinkConnectivity; latencyMs?: number; source?: "probe" | "browser" };
+import { linkProbeTargets, serviceProbeTargets, useBrowserConnectivity, useLocalProbeConnectivity, type ConnectivityResult } from "./hooks/use-connectivity";
+import { fetchVisitorGeo, isPublicAddress, publicStunAddress, type VisitorGeo } from "./lib/network";
 
-const iconOptions = ["folder", "star", "code", "wrench", "newspaper", "cloud", "coffee", "globe", "book-open", "briefcase", "sparkles", "github", "youtube", "openai", "rss"];
 const clockStyles: Array<AppearanceSettings["clockStyle"]> = ["plain", "flip", "ticker", "glow"];
 
-const brandIcons: Record<string, IconType> = {
-  baidu: SiBaidu,
-  bilibili: SiBilibili,
-  cloudflare: SiCloudflare,
-  docker: SiDocker,
-  figma: SiFigma,
-  gitee: SiGitee,
-  gitea: SiGitea,
-  github: SiGithub,
-  google: SiGoogle,
-  jetbrains: SiJetbrains,
-  mdn: SiMdnwebdocs,
-  netlify: SiNetlify,
-  npm: SiNpm,
-  notion: SiNotion,
-  openai: SiOpenai,
-  postman: SiPostman,
-  react: SiReact,
-  stack: SiStackoverflow,
-  vercel: SiVercel,
-  youtube: SiYoutube,
-};
-
-const uiIcons: Record<string, typeof Star> = {
-  activity: Activity,
-  book: BookOpen,
-  "book-open": BookOpen,
-  braces: Braces,
-  briefcase: BriefcaseBusiness,
-  cloud: Cloud,
-  coffee: Coffee,
-  code: Code2,
-  globe: Globe2,
-  image: Image,
-  languages: Languages,
-  map: MapPin,
-  "map-pin": MapPin,
-  music: Music2,
-  newspaper: Newspaper,
-  palette: Palette,
-  plane: Plane,
-  qr: QrCode,
-  rss: Rss,
-  sparkles: Sparkles,
-  star: Star,
-  wrench: Wrench,
-  clock: Clock3,
-  wallet: Wallet,
-};
-
-function ItemIcon({ icon, iconKind = "builtin", iconUrl, size = 20 }: { icon: IconKey; iconKind?: "builtin" | "url"; iconUrl?: string; size?: number }) {
-  if (iconKind === "url" && iconUrl) return <CustomIcon icon={icon} iconUrl={iconUrl} size={size} />;
-  const BrandIcon = brandIcons[icon];
-  if (BrandIcon) return <BrandIcon size={size} aria-hidden="true" />;
-  const UiIcon = uiIcons[icon] ?? Link2;
-  return <UiIcon size={size} strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function CustomIcon({ icon, iconUrl, size }: { icon: IconKey; iconUrl: string; size: number }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <ItemIcon icon={icon} size={size} />;
-  return <img className="custom-icon" src={iconUrl} alt="" width={size} height={size} loading="lazy" onError={() => setFailed(true)} />;
-}
 
 function relativeTime(value: string) {
   const parsed = Date.parse(value);
@@ -191,10 +62,13 @@ function relativeTime(value: string) {
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
+  const visible = usePageVisible();
   useEffect(() => {
+    if (!visible) return;
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [visible]);
   return now;
 }
 
@@ -215,171 +89,95 @@ function safeTimezone(timezone: string | undefined) {
   }
 }
 
-function nextTheme(theme: Theme): Theme {
-  return theme === "system" ? "light" : theme === "light" ? "dark" : "system";
-}
 
 function themeLabel(theme: Theme) {
   return theme === "system" ? "跟随系统" : theme === "light" ? "浅色模式" : "深色模式";
 }
 
-type VisitorGeo = { ip?: string; location?: string; isp?: string; asn?: string };
-
-async function fetchVisitorGeo(): Promise<VisitorGeo> {
-  const providers: Array<() => Promise<VisitorGeo>> = [
-    async () => {
-      const response = await fetch("https://api.ip.sb/geoip", { credentials: "omit", cache: "no-store" });
-      if (!response.ok) throw new Error("ip.sb unavailable");
-      const value = await response.json() as { ip?: string; country?: string; region?: string; city?: string; isp?: string; organization?: string; asn_organization?: string; asn?: string };
-      if (!value.ip) throw new Error("ip.sb missing ip");
-      return { ip: value.ip, location: [value.country, value.city || value.region].filter(Boolean).join(" · "), isp: value.isp || value.organization || value.asn_organization, asn: value.asn };
-    },
-    async () => {
-      const response = await fetch("https://ipwho.is/", { credentials: "omit", cache: "no-store" });
-      if (!response.ok) throw new Error("ipwho unavailable");
-      const value = await response.json() as { success?: boolean; ip?: string; country?: string; region?: string; city?: string; connection?: { isp?: string; org?: string; asn?: number | string } };
-      if (value.success === false || !value.ip) throw new Error("ipwho missing ip");
-      return { ip: value.ip, location: [value.country, value.city || value.region].filter(Boolean).join(" · "), isp: value.connection?.isp || value.connection?.org, asn: value.connection?.asn ? `AS${value.connection.asn}` : undefined };
-    },
-    async () => {
-      const response = await fetch("https://ipapi.co/json/", { credentials: "omit", cache: "no-store" });
-      if (!response.ok) throw new Error("ipapi unavailable");
-      const value = await response.json() as { error?: boolean; ip?: string; country_name?: string; region?: string; city?: string; org?: string; asn?: string };
-      if (value.error || !value.ip) throw new Error("ipapi missing ip");
-      return { ip: value.ip, location: [value.country_name, value.city || value.region].filter(Boolean).join(" · "), isp: value.org, asn: value.asn };
-    },
-  ];
-  for (const provider of providers) {
-    try { return await provider(); } catch { /* try the next public provider */ }
-  }
-  return {};
-}
-
-function useSystemDark() {
-  const [dark, setDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => setDark(media.matches);
-    media.addEventListener?.("change", handleChange);
-    return () => media.removeEventListener?.("change", handleChange);
-  }, []);
-  return dark;
-}
-
-function useBrowserConnectivity(links: LinkItem[]) {
-  const [states, setStates] = useState<Record<number, ConnectivityResult>>({});
-  useEffect(() => {
-    let active = true;
-    const candidates = links.filter((item) => item.connectivityEnabled !== false && /^https?:\/\//i.test(item.url));
-    if (candidates.length === 0) return () => { active = false; };
-    setStates((current) => Object.fromEntries(candidates.map((item) => [item.id, current[item.id] ?? { state: "checking", source: "browser" }])));
-    candidates.forEach((item) => {
-      const controller = new AbortController();
-      const timer = window.setTimeout(() => controller.abort(), 5000);
-      const started = performance.now();
-      fetch(item.url, { mode: "no-cors", cache: "no-store", signal: controller.signal })
-        .then((response) => {
-          if (!active) return;
-          const state: LinkConnectivity = response.ok || response.type === "opaque" ? "reachable" : "unreachable";
-          setStates((current) => ({ ...current, [item.id]: { state, latencyMs: Math.max(1, Math.round(performance.now() - started)), source: "browser" } }));
-        })
-        .catch(() => { if (active) setStates((current) => ({ ...current, [item.id]: { state: "unknown", source: "browser" } })); })
-        .finally(() => { window.clearTimeout(timer); });
-    });
-    return () => { active = false; };
-  }, [links]);
-  return states;
-}
-
-type ProbeTarget = { id: number; host: string; port: number };
-
-function useLocalProbeConnectivity(targets: ProbeTarget[]) {
-  const [states, setStates] = useState<Record<number, ConnectivityResult>>({});
-  useEffect(() => {
-    let active = true;
-    const probeBase = localStorage.getItem("kitony-probe-url") || "http://127.0.0.1:4711";
-    targets.forEach((target) => {
-      const url = `${probeBase.replace(/\/$/, "")}/tcping?host=${encodeURIComponent(target.host)}&port=${target.port}`;
-      fetch(url, { cache: "no-store" })
-        .then(async (response) => {
-          if (!response.ok) throw new Error("probe unavailable");
-          const value = await response.json() as { ok?: boolean; latencyMs?: number };
-          if (active) setStates((current) => ({ ...current, [target.id]: { state: value.ok ? "reachable" : "unreachable", latencyMs: value.latencyMs, source: "probe" } }));
-        })
-        .catch(() => undefined);
-    });
-    return () => { active = false; };
-  }, [targets]);
-  return states;
-}
 
 function App() {
-  return <AppShell />;
+  return <MotionConfig reducedMotion="user"><AppShell /></MotionConfig>;
 }
 
 function AppShell() {
-  const { data, isFetching } = useQuery({ queryKey: ["bootstrap"], queryFn: fetchBootstrap, staleTime: 30_000 });
-  const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem("kitony-theme");
-    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  const { data, isFetching, error, dataUpdatedAt, refetch } = useQuery({
+    queryKey: ["bootstrap"], queryFn: ({ signal }) => fetchBootstrap(signal),
+    staleTime: 30_000, refetchInterval: 60_000, refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("kitony-sidebar") === "collapsed");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const themeOverride = useUIStore((state) => state.theme);
+  const collapsed = useUIStore((state) => state.collapsed);
+  const mobileMenuOpen = useUIStore((state) => state.mobileMenuOpen);
+  const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
+  const isMobile = useMediaQuery("(max-width: 980px)");
+  const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
+  const reducedMotion = useReducedMotion();
+  const theme = themeOverride ?? data?.settings.appearance?.theme ?? "system";
+  const resolvedTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme;
+  const appData = useMemo(() => data ? normalizeBootstrap(data) : undefined, [data]);
 
   useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const resolved = theme === "system" ? (media.matches ? "dark" : "light") : theme;
-    document.documentElement.dataset.theme = resolved;
-    localStorage.setItem("kitony-theme", theme);
-    if (theme !== "system") return;
-    const handleChange = () => { document.documentElement.dataset.theme = media.matches ? "dark" : "light"; };
-    media.addEventListener?.("change", handleChange);
-    return () => media.removeEventListener?.("change", handleChange);
-  }, [theme]);
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", resolvedTheme === "dark" ? "#11151c" : "#edf1f7");
+  }, [resolvedTheme]);
 
   useEffect(() => {
-    if (!data) return;
-    document.title = data.brand.name || "KitonyNav";
-    const themeColor = document.querySelector('meta[name="theme-color"]');
-    if (themeColor) themeColor.setAttribute("content", theme === "dark" ? "#11151c" : "#edf1f7");
-  }, [data, theme]);
+    document.title = data?.brand.name || "KitonyNav";
+  }, [data?.brand.name]);
 
   useEffect(() => {
-    if (localStorage.getItem("kitony-theme") === null && data?.settings.appearance?.theme) setTheme(data.settings.appearance.theme);
-  }, [data?.settings.appearance?.theme]);
+    const syncPreferences = (event: StorageEvent) => {
+      if (event.key === UI_STORAGE_KEY || event.key === null) void useUIStore.persist.rehydrate();
+    };
+    window.addEventListener("storage", syncPreferences);
+    return () => window.removeEventListener("storage", syncPreferences);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("kitony-sidebar", collapsed ? "collapsed" : "expanded");
-  }, [collapsed]);
-
-  const appData = data ? normalizeBootstrap(data) : undefined;
+    if (!isMobile && useUIStore.getState().mobileMenuOpen) setMobileMenuOpen(false);
+  }, [isMobile, setMobileMenuOpen]);
 
   if (!appData) {
-    return <div className="app-loading"><div className="loading-orb" /><span>准备你的导航空间</span></div>;
+    return error ? (
+      <main className="app-loading" role="alert">
+        <div><h1>导航加载失败</h1><p>{error.message}</p>
+          <button className="primary-button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? "重试中" : "重新加载"}</button>
+        </div>
+      </main>
+    ) : <div className="app-loading"><div className="loading-orb" /><span>准备你的导航空间</span></div>;
   }
 
   return (
-    <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""} ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
-      <Sidebar
-        data={appData}
-        collapsed={collapsed}
-        setCollapsed={setCollapsed}
-        activeCategory={activeCategory}
-        setActiveCategory={setActiveCategory}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-      />
-      <div className="workspace">
-        <TopBar data={appData} theme={theme} setTheme={setTheme} onOpenMenu={() => setMobileMenuOpen(true)} />
-        <Routes>
-          <Route path="/" element={<HomePage data={appData} activeCategory={activeCategory} setActiveCategory={setActiveCategory} isFetching={isFetching} />} />
-          <Route path="/updates" element={<UpdatesPage data={appData} />} />
-          <Route path="/admin" element={<AdminPage data={appData} />} />
-          <Route path="*" element={<HomePage data={appData} activeCategory={activeCategory} setActiveCategory={setActiveCategory} isFetching={isFetching} />} />
-        </Routes>
+    <Dialog.Root open={isMobile && mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+      <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
+        {isMobile ? (
+          <Dialog.Portal>
+            <Dialog.Overlay className="mobile-scrim" />
+            <Dialog.Content asChild>
+              <motion.aside className={`sidebar mobile-sidebar ${collapsed ? "sidebar-collapsed" : ""}`} initial={false} animate={{ width: collapsed ? 80 : 252 }} transition={reducedMotion ? { duration: 0 } : sidebarTransition}>
+                <Dialog.Title className="visually-hidden">导航菜单</Dialog.Title>
+                <Dialog.Description className="visually-hidden">选择页面或收藏夹，按 Escape 关闭导航。</Dialog.Description>
+                <Sidebar data={appData} mobile />
+              </motion.aside>
+            </Dialog.Content>
+          </Dialog.Portal>
+        ) : (
+          <motion.aside className="sidebar" initial={false} animate={{ width: collapsed ? 80 : 252 }} transition={reducedMotion ? { duration: 0 } : sidebarTransition}>
+            <Sidebar data={appData} />
+          </motion.aside>
+        )}
+        <div className="workspace">
+          <TopBar data={appData} resolvedTheme={resolvedTheme} />
+          {error && <div className="feedback-banner error" role="alert"><CircleAlert size={16} /><span>同步失败，正在显示上次成功的数据：{error.message}</span><button disabled={isFetching} onClick={() => void refetch()} aria-label="重试同步"><RefreshCw size={16} /></button></div>}
+          <Routes>
+            <Route path="/" element={<HomePage data={appData} isFetching={isFetching} syncError={!!error} syncedAt={dataUpdatedAt} />} />
+            <Route path="/updates" element={<UpdatesPage data={appData} />} />
+            <Route path="/admin" element={<AdminPage data={appData} />} />
+            <Route path="*" element={<HomePage data={appData} isFetching={isFetching} syncError={!!error} syncedAt={dataUpdatedAt} />} />
+          </Routes>
+        </div>
       </div>
-    </div>
+    </Dialog.Root>
   );
 }
 
@@ -388,9 +186,9 @@ const sidebarTransition = {
   ease: [0.2, 0.8, 0.2, 1] as const,
 };
 
-const labelTransition = (collapsed: boolean, delay = 0) => ({
-  duration: collapsed ? 0.12 : 0.22,
-  delay: collapsed ? 0 : 0.04 + delay,
+const labelTransition = (collapsed: boolean, delay = 0, reducedMotion = false) => ({
+  duration: reducedMotion ? 0 : collapsed ? 0.12 : 0.22,
+  delay: reducedMotion || collapsed ? 0 : 0.04 + delay,
   ease: collapsed ? ("easeIn" as const) : ([0.16, 1, 0.3, 1] as const),
 });
 
@@ -401,44 +199,16 @@ const labelAnim = (collapsed: boolean) => ({
   marginLeft: collapsed ? 0 : 10,
 });
 
-function Sidebar({
-  data,
-  collapsed,
-  setCollapsed,
-  activeCategory,
-  setActiveCategory,
-  mobileMenuOpen,
-  setMobileMenuOpen,
-}: {
-  data: BootstrapData;
-  collapsed: boolean;
-  setCollapsed: (value: boolean) => void;
-  activeCategory: number | null;
-  setActiveCategory: (value: number | null) => void;
-  mobileMenuOpen: boolean;
-  setMobileMenuOpen: (value: boolean) => void;
-}) {
+function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boolean }) {
+  const collapsed = useUIStore((state) => state.collapsed);
+  const setCollapsed = useUIStore((state) => state.setCollapsed);
+  const activeCategory = useUIStore((state) => state.activeCategory);
+  const setActiveCategory = useUIStore((state) => state.setActiveCategory);
+  const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
+  const navigate = useNavigate();
+  const reducedMotion = !!useReducedMotion();
   return (
-    <>
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <motion.button
-            className="mobile-scrim"
-            aria-label="关闭导航"
-            onClick={() => setMobileMenuOpen(false)}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          />
-        )}
-      </AnimatePresence>
-      <motion.aside
-        className="sidebar"
-        initial={false}
-        animate={{ width: collapsed ? 80 : 252 }}
-        transition={sidebarTransition}
-      >
-        <div className="sidebar-inner">
+    <div className="sidebar-inner">
           <div className="brand-lockup">
             <div className="sidebar-icon-slot">
               <div className="brand-mark"><img src="/favicon.svg" alt="" width="34" height="34" /></div>
@@ -447,12 +217,12 @@ function Sidebar({
               className="sidebar-text-slot"
               initial={false}
               animate={labelAnim(collapsed)}
-              transition={labelTransition(collapsed, 0)}
+              transition={labelTransition(collapsed, 0, reducedMotion)}
             >
               <div className="brand-name">{data.brand.name || "KitonyNav"}</div>
             </motion.div>
           </div>
-          <button className="mobile-close icon-button" onClick={() => setMobileMenuOpen(false)} aria-label="关闭导航"><X size={20} /></button>
+          {mobile && <Dialog.Close asChild><button className="mobile-close icon-button" aria-label="关闭导航"><X size={20} /></button></Dialog.Close>}
           <nav className="primary-nav" aria-label="主导航">
             <NavItem to="/" icon={<House size={19} />} label="首页" collapsed={collapsed} exact index={0} />
             <NavItem to="/updates" icon={<MessageCircle size={19} />} label="动态" collapsed={collapsed} index={1} />
@@ -461,6 +231,7 @@ function Sidebar({
           <div className="sidebar-rule" />
           <motion.div
             className="sidebar-section-heading"
+            inert={collapsed || undefined}
             initial={false}
             animate={{
               opacity: collapsed ? 0 : 1,
@@ -469,14 +240,14 @@ function Sidebar({
               marginBottom: collapsed ? 0 : 6,
             }}
             transition={{
-              duration: collapsed ? 0.12 : 0.22,
-              delay: collapsed ? 0 : 0.05,
+              duration: reducedMotion ? 0 : collapsed ? 0.12 : 0.22,
+              delay: reducedMotion || collapsed ? 0 : 0.05,
               ease: collapsed ? "easeIn" : [0.16, 1, 0.3, 1],
             }}
             style={{ overflow: "hidden" }}
           >
             <span>收藏夹</span>
-            <button className="icon-button subtle" title="添加收藏夹" aria-label="添加收藏夹"><Plus size={17} /></button>
+            <NavLink to="/admin" className="icon-button subtle" title="添加收藏夹" aria-label="添加收藏夹" onClick={() => setMobileMenuOpen(false)}><Plus size={17} /></NavLink>
           </motion.div>
           <div className="sidebar-folders">
             {data.categories.map((category, index) => {
@@ -485,7 +256,9 @@ function Sidebar({
                 <button
                   className={`folder-row ${isSelected ? "selected" : ""}`}
                   key={category.id}
-                  onClick={() => setActiveCategory(isSelected ? null : category.id)}
+                  onClick={() => { setActiveCategory(isSelected ? null : category.id); setMobileMenuOpen(false); navigate("/"); }}
+                  aria-label={category.name}
+                  aria-pressed={isSelected}
                   title={collapsed ? category.name : undefined}
                 >
                   {isSelected && (
@@ -503,7 +276,7 @@ function Sidebar({
                     className="sidebar-text-slot"
                     initial={false}
                     animate={labelAnim(collapsed)}
-                    transition={labelTransition(collapsed, 0.05 + index * 0.015)}
+                    transition={labelTransition(collapsed, 0.05 + index * 0.015, reducedMotion)}
                   >
                     <div className="folder-text-content">
                       <span className="folder-name">{category.name}{category.name === "常用" ? "网站" : ""}</span>
@@ -529,15 +302,13 @@ function Sidebar({
                 className="sidebar-text-slot nav-row-label"
                 initial={false}
                 animate={labelAnim(collapsed)}
-                transition={labelTransition(collapsed, 0.1)}
+                transition={labelTransition(collapsed, 0.1, reducedMotion)}
               >
                 收起侧栏
               </motion.span>
             </button>
           </div>
         </div>
-      </motion.aside>
-    </>
   );
 }
 
@@ -556,8 +327,10 @@ function NavItem({
   exact?: boolean;
   index?: number;
 }) {
+  const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
+  const reducedMotion = !!useReducedMotion();
   return (
-    <NavLink to={to} end={exact} className={({ isActive }) => `nav-row ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}>
+    <NavLink to={to} end={exact} onClick={() => setMobileMenuOpen(false)} className={({ isActive }) => `nav-row ${isActive ? "active" : ""}`} title={collapsed ? label : undefined}>
       {({ isActive }) => (
         <>
           {isActive && (
@@ -573,7 +346,7 @@ function NavItem({
             className="sidebar-text-slot nav-row-label"
             initial={false}
             animate={labelAnim(collapsed)}
-            transition={labelTransition(collapsed, 0.02 + index * 0.02)}
+            transition={labelTransition(collapsed, 0.02 + index * 0.02, reducedMotion)}
           >
             {label}
           </motion.span>
@@ -583,34 +356,55 @@ function NavItem({
   );
 }
 
-function TopBar({ data, theme, setTheme, onOpenMenu }: { data: BootstrapData; theme: Theme; setTheme: (value: Theme) => void; onOpenMenu: () => void }) {
+function TopBar({ data, resolvedTheme }: { data: BootstrapData; resolvedTheme: "light" | "dark" }) {
   const now = useClock();
   const appearance = data.settings.appearance ?? { theme: "system", clockStyle: "plain", clock24Hour: true, clockSeconds: false, clockColor: "#2f6ff3", clockSpeed: 1 };
   const timezone = useMemo(() => safeTimezone(data.settings.timezone), [data.settings.timezone]);
   const { time, date } = formatClock(now, timezone, appearance);
   const clockClass = `clock-${appearance.clockStyle}`;
-  const systemDark = useSystemDark();
-  const activeTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme;
+  const theme = useUIStore((state) => state.theme) ?? appearance.theme;
+  const setTheme = useUIStore((state) => state.setTheme);
   return (
     <header className="topbar">
-      <button className="mobile-menu-button icon-button" onClick={onOpenMenu} aria-label="打开导航"><Menu size={20} /></button>
+      <Dialog.Trigger asChild><button className="mobile-menu-button icon-button" aria-label="打开导航"><Menu size={20} /></button></Dialog.Trigger>
       <div className="topbar-meta">
         <span className="weather-inline"><CloudSun size={19} /><span>{data.settings.weatherLocation}</span><strong>24°C</strong><em>多云</em></span>
         <span className="topbar-divider" />
-        <span className={`time-inline ${clockClass}`} style={{ "--clock-color": appearance.clockColor } as CSSProperties}><Clock3 size={18} /><strong>{time}</strong><span>{date}</span></span>
+        <span className={`time-inline ${clockClass}`} style={{ "--clock-color": appearance.clockColor } as CSSProperties}><Clock3 size={18} /><ClockDisplay time={time} appearance={appearance} /><span>{date}</span></span>
         <span className="topbar-divider" />
-        <button className="topbar-theme" onClick={() => setTheme(nextTheme(theme))} aria-label={`切换主题，当前${themeLabel(theme)}`} title="切换主题">{activeTheme === "dark" ? <Moon size={18} /> : <Sun size={18} />}<span>{themeLabel(theme)}</span><ChevronDown size={15} /></button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button className="topbar-theme" aria-label={`主题设置，当前${themeLabel(theme)}`} title="选择主题">{resolvedTheme === "dark" ? <Moon size={18} /> : <Sun size={18} />}<span>{themeLabel(theme)}</span><ChevronDown size={15} /></button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="theme-menu" align="end" sideOffset={8} collisionPadding={12}>
+              <DropdownMenu.RadioGroup value={theme} onValueChange={(value) => setTheme(value as Theme)} aria-label="选择主题">
+                {(["system", "light", "dark"] as const).map((value) => (
+                  <DropdownMenu.RadioItem className="theme-menu-item" value={value} key={value}>
+                    <span>{themeLabel(value)}</span><DropdownMenu.ItemIndicator><Check size={15} /></DropdownMenu.ItemIndicator>
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
     </header>
   );
 }
 
-function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { data: BootstrapData; activeCategory: number | null; setActiveCategory: (value: number | null) => void; isFetching: boolean }) {
+function HomePage({ data, isFetching, syncError, syncedAt }: { data: BootstrapData; isFetching: boolean; syncError: boolean; syncedAt: number }) {
+  const selectedCategory = useUIStore((state) => state.activeCategory);
+  const activeCategory = data.categories.some((category) => category.visible !== false && category.id === selectedCategory) ? selectedCategory : null;
+  const setActiveCategory = useUIStore((state) => state.setActiveCategory);
   const [query, setQuery] = useState("");
   const [engine, setEngine] = useState(() => resolveEngine(data.settings.defaultEngine));
   const [showAll, setShowAll] = useState(false);
   const navigate = useNavigate();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectedCategory !== activeCategory) setActiveCategory(activeCategory);
+  }, [selectedCategory, activeCategory, setActiveCategory]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -630,15 +424,16 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-  const visibleLinks = useMemo(() => data.categories.flatMap((category) => category.links), [data.categories]);
+  const visibleLinks = useMemo(() => data.categories.filter((category) => category.visible !== false).flatMap((category) => category.links.filter((item) => item.visible !== false)), [data.categories]);
   const browserConnectivity = useBrowserConnectivity(visibleLinks);
-  const linkProbeTargets = useMemo(() => visibleLinks.flatMap((item) => {
-    try { const parsed = new URL(item.url); return [{ id: item.id, host: parsed.hostname, port: Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80) }]; } catch { return []; }
-  }), [visibleLinks]);
-  const serviceProbeTargets = useMemo(() => data.services.flatMap((service) => service.checkType === "tcp" && service.target && service.port ? [{ id: service.id, host: service.target, port: service.port }] : []), [data.services]);
-  const linkProbeConnectivity = useLocalProbeConnectivity(linkProbeTargets);
-  const serviceConnectivity = useLocalProbeConnectivity(serviceProbeTargets);
-  const connectivity = useMemo(() => ({ ...browserConnectivity, ...linkProbeConnectivity }), [browserConnectivity, linkProbeConnectivity]);
+  const linkTargets = useMemo(() => linkProbeTargets(visibleLinks), [visibleLinks]);
+  const serviceTargets = useMemo(() => serviceProbeTargets(data.services), [data.services]);
+  const linkProbeConnectivity = useLocalProbeConnectivity(linkTargets);
+  const serviceConnectivity = useLocalProbeConnectivity(serviceTargets);
+  const connectivity = Object.fromEntries(visibleLinks.map((link) => {
+    const probe = linkProbeConnectivity[link.id];
+    return [link.id, probe?.state === "reachable" || probe?.state === "unreachable" ? probe : browserConnectivity[link.id]];
+  }));
 
   const visibleCategories = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -670,7 +465,7 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
         <div className="search-wrap">
           <div className={`search-box ${query ? "has-value" : ""}`}>
             <Search size={22} strokeWidth={1.7} />
-            <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") openSearch(); }} placeholder="搜索或输入网址 (⌘K)" aria-label="搜索或输入网址" />
+            <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) openSearch(); }} placeholder="搜索或输入网址 (⌘K)" aria-label="搜索或输入网址" />
             <div className="search-actions">
               <select value={engine} onChange={(event) => setEngine(event.target.value)} aria-label="搜索引擎">
                 {engineOptions.map((option) => <option key={option}>{option}</option>)}
@@ -702,9 +497,11 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
                 <button className="primary-button" onClick={openSearch}>使用 {engine} 搜索</button>
               </div>
             </div>
+          ) : visibleCategories.length === 0 ? (
+            <div className="empty-search-state" role="status"><h3>暂无可显示的链接</h3><p>可以切换收藏夹，或在设置中添加链接。</p><button className="quiet-button" onClick={() => { setActiveCategory(null); navigate("/admin"); }}>管理内容</button></div>
           ) : (
             visibleCategories.slice(0, query || activeCategory !== null || showAll ? undefined : 3).map((category) => (
-              <CategorySection category={category} connectivity={connectivity} key={category.id} onMore={() => setActiveCategory(category.id)} />
+              <CategorySection category={category} expanded={!!query.trim() || activeCategory !== null} connectivity={connectivity} key={category.id} onMore={() => setActiveCategory(category.id)} />
             ))
           )}
         </div>
@@ -716,7 +513,7 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
           <UpdatesPanel updates={data.updates} compact />
         </div>
         <NetworkPanel />
-        <div className="sync-banner"><div className="sync-icon"><Activity size={17} /></div><div><strong>{isFetching ? "正在同步" : "内容已同步"}</strong><span>服务、订阅和设备网络信息会按配置刷新。</span></div><span className="sync-time">{isFetching ? "同步中" : "刚刚同步"}</span></div>
+        <div className="sync-banner"><div className="sync-icon"><Activity size={17} /></div><div><strong>{isFetching ? "正在同步" : syncError ? "同步失败，保留上次内容" : "已读取最新缓存"}</strong><span>页面可见时每 60 秒同步服务与订阅缓存。</span></div><time className="sync-time" dateTime={new Date(syncedAt).toISOString()}>上次同步 {new Date(syncedAt).toLocaleTimeString("zh-CN")}</time></div>
       </div>
       <aside className="home-rail">
         <StatusPanel services={data.services} localConnectivity={serviceConnectivity} />
@@ -726,13 +523,13 @@ function HomePage({ data, activeCategory, setActiveCategory, isFetching }: { dat
   );
 }
 
-function CategorySection({ category, connectivity, onMore }: { category: Category; connectivity: Record<number, ConnectivityResult>; onMore: () => void }) {
+function CategorySection({ category, connectivity, onMore, expanded = false }: { category: Category; connectivity: Record<number, ConnectivityResult | undefined>; onMore: () => void; expanded?: boolean }) {
   return (
     <section className="category-section">
       <div className="category-heading"><div className="category-title"><span className="category-icon"><ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={21} /></span><div><h2>{category.name}</h2><p>{category.description}</p></div></div><button className="category-more" onClick={onMore} aria-label={`查看${category.name}全部链接`}><ChevronRight size={19} /></button></div>
       <div className="link-grid">
-        {category.links.slice(0, 8).map((item) => <LinkItemCard item={item} connectivity={connectivity[item.id]} key={item.id} />)}
-        {category.links.length > 8 && <button className="link-card more-card" onClick={onMore}><span><MoreHorizontal size={20} /></span><div><strong>更多链接</strong><small>查看该分类全部内容</small></div></button>}
+        {(expanded ? category.links : category.links.slice(0, 8)).map((item) => <LinkItemCard item={item} connectivity={connectivity[item.id]} key={item.id} />)}
+        {!expanded && category.links.length > 8 && <button className="link-card more-card" onClick={onMore}><span><MoreHorizontal size={20} /></span><div><strong>更多链接</strong><small>查看该分类全部内容</small></div></button>}
       </div>
     </section>
   );
@@ -740,13 +537,15 @@ function CategorySection({ category, connectivity, onMore }: { category: Categor
 
 function LinkItemCard({ item, connectivity }: { item: LinkItem; connectivity?: ConnectivityResult }) {
   const state = connectivity?.state ?? "unknown";
-  const metric = connectivity?.latencyMs != null ? `${connectivity.latencyMs} ms` : state === "checking" ? "…" : "—";
-  const label = state === "reachable" ? `本机延迟 ${metric}` : state === "checking" ? "检测中" : state === "unknown" ? "无法确认" : "连接失败";
+  const metric = connectivity?.latencyMs != null ? `${connectivity.source === "browser" ? "HTTP " : ""}${connectivity.latencyMs} ms` : state === "checking" ? "…" : "—";
+  const method = connectivity?.source === "probe" ? "本机 TCP" : "浏览器 HTTP";
+  const status = state === "reachable" ? `可达，耗时 ${metric}` : state === "checking" ? "检测中" : state === "unknown" ? "无法确认" : "连接失败";
+  const label = `${method}：${status}${connectivity?.reason ? `（${connectivity.reason}）` : ""}${connectivity?.checkedAt ? `，检查于 ${new Date(connectivity.checkedAt).toLocaleTimeString("zh-CN")}` : ""}`;
   return (
     <a className="link-card" href={item.url} target="_blank" rel="noreferrer">
       <span className="link-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={21} /></span>
       <span className="link-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
-      <span className={`link-metric ${state}`} title={label} aria-label={label}><span className="connectivity-dot" />{metric}</span>
+      {item.connectivityEnabled !== false && <span className={`link-metric ${state}`} title={label} aria-label={label}><span className="connectivity-dot" />{metric}</span>}
       <ArrowUpRight className="link-arrow" size={15} />
     </a>
   );
@@ -802,108 +601,72 @@ function NetworkPanel() {
   const [webrtcAddress, setWebrtcAddress] = useState("");
   const [geoInfo, setGeoInfo] = useState<VisitorGeo>({});
   const [userAgent] = useState(() => navigator.userAgent);
-  const [expanded, setExpanded] = useState(false);
-  const panelRef = useRef<HTMLElement>(null);
 
-  useEffect(() => { fetchClientNetwork().then(setHttpInfo).catch(() => setHttpInfo({ status: "unavailable" })); }, []);
   useEffect(() => {
-    let active = true;
-    fetchVisitorGeo().then((value) => { if (active) setGeoInfo(value); });
-    return () => { active = false; };
+    const controller = new AbortController();
+    fetchClientNetwork(controller.signal).then((value) => { if (!controller.signal.aborted) setHttpInfo(value); }).catch(() => { if (!controller.signal.aborted) setHttpInfo({ status: "unavailable" }); });
+    fetchVisitorGeo(controller.signal).then((value) => { if (!controller.signal.aborted) setGeoInfo(value); });
+    return () => controller.abort();
   }, []);
   useEffect(() => {
     if (typeof RTCPeerConnection === "undefined") return;
     let active = true;
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    peer.createDataChannel("kitony-network");
-    peer.onicecandidate = (event) => {
-      const candidate = event.candidate?.candidate || "";
-      const match = candidate.match(/candidate:\S+ \S+ \S+ \S+ ([^ ]+) /);
-      if (active && match?.[1] && !match[1].endsWith(".local")) setWebrtcAddress(match[1]);
-    };
-    peer.createOffer().then((offer) => peer.setLocalDescription(offer)).catch(() => undefined);
-    const timer = window.setTimeout(() => peer.close(), 5000);
-    return () => { active = false; window.clearTimeout(timer); peer.close(); };
+    let peer: RTCPeerConnection | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const close = () => { active = false; clearTimeout(timer); peer?.close(); };
+    try {
+      const connection = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      peer = connection;
+      connection.createDataChannel("kitony-network");
+      connection.onicecandidate = (event) => {
+        const address = event.candidate && publicStunAddress(event.candidate);
+        if (active && address) setWebrtcAddress((current) => current || address);
+      };
+      connection.onicegatheringstatechange = () => { if (connection.iceGatheringState === "complete") close(); };
+      connection.createOffer().then((offer) => { if (active) return connection.setLocalDescription(offer); }).catch(close);
+      timer = setTimeout(close, 5000);
+    } catch {
+      close();
+    }
+    return close;
   }, []);
 
-  useEffect(() => {
-    if (!expanded) return;
-    const handleOutside = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setExpanded(false);
-      }
-    };
-    window.addEventListener("mousedown", handleOutside);
-    return () => window.removeEventListener("mousedown", handleOutside);
-  }, [expanded]);
-
-  const ipAddress = geoInfo.ip || httpInfo.address || webrtcAddress || "无法确认";
+  const httpAddress = httpInfo.address && isPublicAddress(httpInfo.address) ? httpInfo.address : "";
+  const ipAddress = geoInfo.ip || httpAddress || webrtcAddress || "无法确认";
   const location = geoInfo.location || "无法确认";
   const operator = [geoInfo.isp, geoInfo.asn].filter(Boolean).join(" · ") || "无法确认";
-  const ipFamily = ipAddress.includes(":") ? "IPv6" : ipAddress.match(/^\d+(?:\.\d+){3}$/) ? "IPv4" : httpInfo.family || "检测中";
-  const toggleExpanded = () => setExpanded((value) => !value);
+  const ipFamily = ipAddress.includes(":") ? "IPv6" : /^\d+(?:\.\d+){3}$/.test(ipAddress) ? "IPv4" : "未知";
 
   return (
-    <>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            className="network-scrim"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setExpanded(false)}
-          />
-        )}
-      </AnimatePresence>
-      <aside
-        ref={panelRef}
-        className={`network-float ${expanded ? "expanded" : ""}`}
-        aria-label="网络出口信息"
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={toggleExpanded}
-        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleExpanded(); } }}
-      >
-        <div className="network-float-summary">
-          <span className="network-float-mark"><Globe2 size={14} /></span>
-          <span className="network-pill" title={location}>{location}</span>
-          <span className="network-pill network-pill-ip" title={ipAddress}>{ipAddress}</span>
-          <span className="network-float-source">{ipFamily}</span>
-        </div>
-        <AnimatePresence initial={false}>
-          {expanded && (
-            <motion.div
-              className="network-details-anim"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{
-                height: { duration: 0.24, ease: [0.16, 1, 0.3, 1] },
-                opacity: { duration: 0.14 },
-              }}
-              style={{ overflow: "hidden" }}
-            >
-              <dl className="network-float-details">
-                <div><dt>IP 地址</dt><dd>{ipAddress}</dd></div>
-                <div><dt>位置</dt><dd>{location}</dd></div>
-                <div><dt>运营商</dt><dd>{operator}</dd></div>
-                <div><dt>UA</dt><dd title={userAgent}>{userAgent}</dd></div>
-              </dl>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </aside>
-    </>
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <button type="button" className="network-float" aria-label="网络出口信息">
+          <span className="network-float-summary">
+            <span className="network-float-mark"><Globe2 size={14} /></span>
+            <span className="network-pill" title={location}>{location}</span>
+            <span className="network-pill network-pill-ip" title={ipAddress}>{ipAddress}</span>
+            <span className="network-float-source">{ipFamily}</span>
+          </span>
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content className="network-popover" side="top" sideOffset={10} collisionPadding={12} aria-label="网络出口信息详情">
+          <dl className="network-float-details">
+            <div><dt>IP 地址</dt><dd>{ipAddress}</dd></div>
+            <div><dt>位置</dt><dd>{location}</dd></div>
+            <div><dt>运营商</dt><dd>{operator}</dd></div>
+            <div><dt>UA</dt><dd title={userAgent}>{userAgent}</dd></div>
+          </dl>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
 function UpdatesPanel({ updates, compact = false }: { updates: UpdateItem[]; compact?: boolean }) {
   return (
     <section className={`rail-panel updates-panel ${compact ? "compact-panel" : ""}`}>
-      <div className="panel-heading"><div><span className="panel-kicker"><Rss size={14} /> 最近动态</span>{!compact && <h3>订阅源正在更新</h3>}</div><button className="panel-action" title="查看全部动态" aria-label="查看全部动态"><ChevronRight size={17} /></button></div>
+      <div className="panel-heading"><div><span className="panel-kicker"><Rss size={14} /> 最近动态</span>{!compact && <h3>订阅源正在更新</h3>}</div><NavLink to="/updates" className="panel-action" title="查看全部动态" aria-label="查看全部动态"><ChevronRight size={17} /></NavLink></div>
       <div className="update-list">
         {updates.slice(0, compact ? 4 : 5).map((item) => <a className="update-row" href={item.url} target="_blank" rel="noreferrer" key={item.id}><span className={`source-dot ${item.source.toLowerCase()}`} /><span className="update-title">{item.title}</span><time>{relativeTime(item.time)}</time></a>)}
       </div>
@@ -919,21 +682,23 @@ function UpdatesPage({ data }: { data: BootstrapData }) {
   return (
     <motion.main className="page-content updates-page route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
       <div className="page-heading"><div><span className="eyebrow">订阅与缓存</span><h1>动态</h1><p>把 RSS、YouTube 和 GitHub 的更新放在一个安静的列表里。</p></div><button className="primary-button" onClick={() => queryClient.invalidateQueries({ queryKey: ["bootstrap"] })}><RefreshCw size={16} /> 刷新全部</button></div>
-      <div className="filter-tabs" role="tablist">
+      <Tabs.Root value={filter} onValueChange={(value) => setFilter(value as typeof filter)}>
+      <Tabs.List className="filter-tabs" aria-label="动态来源">
         {(["全部", "RSS", "YouTube", "GitHub"] as const).map((item) => (
-          <button
-            role="tab"
-            aria-selected={filter === item}
+          <Tabs.Trigger value={item}
             className={filter === item ? "active" : ""}
-            onClick={() => setFilter(item)}
             key={item}
           >
             {filter === item && <motion.span layoutId="active-filter-tab" className="tab-pill-active" transition={{ type: "spring", bounce: 0.15, duration: 0.35 }} />}
             <span>{item}</span>
-          </button>
+          </Tabs.Trigger>
         ))}
-      </div>
-      <div className="updates-table">{updates.map((item) => <a className="updates-table-row" href={item.url} target="_blank" rel="noreferrer" key={item.id}><span className={`source-chip ${item.source.toLowerCase()}`}>{item.source === "RSS" ? <Rss size={14} /> : item.source === "YouTube" ? <SiYoutube size={15} /> : <SiGithub size={15} />}{item.source}</span><span className="updates-table-title">{item.title}</span><time>{item.time}</time><ArrowUpRight size={16} /></a>)}</div>
+      </Tabs.List>
+      <Tabs.Content value={filter}>
+        <div className="updates-table">{updates.map((item) => <a className="updates-table-row" href={item.url} target="_blank" rel="noreferrer" key={item.id}><span className={`source-chip ${item.source.toLowerCase()}`}><ItemIcon icon={item.source === "RSS" ? "rss" : item.source.toLowerCase()} size={15} />{item.source}</span><span className="updates-table-title">{item.title}</span><time>{item.time}</time><ArrowUpRight size={16} /></a>)}</div>
+        {updates.length === 0 && <p className="empty-updates" role="status">暂无{filter === "全部" ? "" : ` ${filter} `}动态，可在设置中添加或刷新订阅。</p>}
+      </Tabs.Content>
+      </Tabs.Root>
     </motion.main>
   );
 }
@@ -958,7 +723,8 @@ function AdminPage({ data }: { data: BootstrapData }) {
   const [linkIconKind, setLinkIconKind] = useState<"builtin" | "url">("builtin");
   const [linkIconUrl, setLinkIconUrl] = useState("");
   const [linkConnectivity, setLinkConnectivity] = useState(true);
-  const [linkCategory, setLinkCategory] = useState(data.categories[0]?.id ?? 1);
+  const [linkCategory, setLinkCategory] = useState(data.categories[0]?.id ?? 0);
+  const validLinkCategory = data.categories.some((category) => category.id === linkCategory) ? linkCategory : (data.categories[0]?.id ?? 0);
   const [editingService, setEditingService] = useState<ServiceStatus | null>(null);
   const [serviceName, setServiceName] = useState("");
   const [serviceEnabled, setServiceEnabled] = useState(true);
@@ -971,21 +737,36 @@ function AdminPage({ data }: { data: BootstrapData }) {
   const [subscriptionUrl, setSubscriptionUrl] = useState("");
   const [subscriptionEnabled, setSubscriptionEnabled] = useState(true);
   const [subscriptionInterval, setSubscriptionInterval] = useState("900");
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const success = (message: string) => setFeedback({ kind: "success", message });
+  const failure = (error: Error, fallback: string) => setFeedback({ kind: "error", message: error.message || fallback });
 
+  const resetCategory = () => { setEditingCategory(null); setCategoryName(""); setCategoryDescription(""); setCategoryIcon("folder"); setCategoryIconKind("builtin"); setCategoryIconUrl(""); };
+  const resetLink = () => { setEditingLink(null); setLinkName(""); setLinkDescription(""); setLinkUrl(""); setLinkIcon("globe"); setLinkIconKind("builtin"); setLinkIconUrl(""); setLinkConnectivity(true); setLinkCategory(data.categories[0]?.id ?? 0); };
+  const resetService = () => { setEditingService(null); setServiceName(""); setServiceEnabled(true); setServiceCheckType("none"); setServiceTarget(""); setServicePort("443"); };
+  const resetSubscription = () => { setEditingSubscription(null); setSubscriptionType("rss"); setSubscriptionName(""); setSubscriptionUrl(""); setSubscriptionEnabled(true); setSubscriptionInterval("900"); };
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["bootstrap"] });
   const loginMutation = useMutation({ mutationFn: () => login(password), onSuccess: () => { setPassword(""); setLoginError(""); queryClient.invalidateQueries({ queryKey: ["session"] }); }, onError: (error: Error) => setLoginError(error.message || "登录失败") });
   const logoutMutation = useMutation({ mutationFn: logout, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["session"] }) });
-  const categoryMutation = useMutation({ mutationFn: () => editingCategory ? updateCategory(editingCategory.id, { name: categoryName, description: categoryDescription, icon: categoryIcon, iconKind: categoryIconKind, iconUrl: categoryIconUrl }) : createCategory({ name: categoryName, description: categoryDescription, icon: categoryIcon, iconKind: categoryIconKind, iconUrl: categoryIconUrl }), onSuccess: () => { setFeedback("分类已保存"); setEditingCategory(null); refresh(); }, onError: (error: Error) => setFeedback(error.message || "分类保存失败") });
-  const categoryDelete = useMutation({ mutationFn: deleteCategory, onSuccess: () => { setFeedback("分类已删除"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "删除失败") });
-  const linkMutation = useMutation({ mutationFn: () => { const payload = { name: linkName, description: linkDescription, url: linkUrl, icon: linkIcon, iconKind: linkIconKind, iconUrl: linkIconUrl, categoryId: linkCategory, featured: editingLink?.featured ?? false, visible: editingLink?.visible ?? true, connectivityEnabled: linkConnectivity }; return editingLink ? updateLink(editingLink.id, payload) : createLink(payload); }, onSuccess: () => { setFeedback("链接已保存"); setEditingLink(null); refresh(); }, onError: (error: Error) => setFeedback(error.message || "链接保存失败") });
-  const linkDelete = useMutation({ mutationFn: deleteLink, onSuccess: () => { setFeedback("链接已删除"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "删除失败") });
-  const serviceMutation = useMutation({ mutationFn: () => { const payload = { name: serviceName, enabled: serviceEnabled, checkType: serviceCheckType || "none", target: serviceTarget, port: Number(servicePort) || 0 }; return editingService ? updateService(editingService.id, payload) : createService(payload); }, onSuccess: () => { setFeedback("服务已保存"); setEditingService(null); refresh(); }, onError: (error: Error) => setFeedback(error.message || "服务保存失败") });
-  const serviceDelete = useMutation({ mutationFn: deleteService, onSuccess: () => { setFeedback("服务已删除"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "删除失败") });
-  const serviceRefresh = useMutation({ mutationFn: refreshService, onSuccess: () => { setFeedback("服务状态已刷新"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "服务刷新失败") });
-  const subscriptionMutation = useMutation({ mutationFn: () => { const payload = { type: subscriptionType, name: subscriptionName, url: subscriptionUrl, enabled: subscriptionEnabled, intervalSeconds: Number(subscriptionInterval) || 900 }; return editingSubscription ? updateSubscription(editingSubscription.id, payload) : createSubscription(payload); }, onSuccess: () => { setFeedback("订阅已保存"); setEditingSubscription(null); refresh(); }, onError: (error: Error) => setFeedback(error.message || "订阅保存失败") });
-  const subscriptionDelete = useMutation({ mutationFn: deleteSubscription, onSuccess: () => { setFeedback("订阅已删除"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "删除失败") });
-  const subscriptionRefresh = useMutation({ mutationFn: refreshSubscription, onSuccess: () => { setFeedback("订阅已刷新"); refresh(); }, onError: (error: Error) => setFeedback(error.message || "订阅刷新失败") });
+  const categoryMutation = useSaveMutation(createCategory, updateCategory, () => { success("分类已保存"); resetCategory(); void refresh(); }, (error) => failure(error, "分类保存失败"));
+  const saveCategory = () => categoryMutation.save(editingCategory?.id, { name: categoryName, description: categoryDescription, icon: categoryIcon, iconKind: categoryIconKind, iconUrl: categoryIconUrl });
+  const categoryDelete = useMutation({ mutationFn: deleteCategory, onSuccess: () => { success("分类已删除"); refresh(); }, onError: (error: Error) => failure(error, "删除失败") });
+  const linkMutation = useSaveMutation(createLink, updateLink, () => { success("链接已保存"); resetLink(); void refresh(); }, (error) => failure(error, "链接保存失败"));
+  const saveLink = () => {
+    if (!validLinkCategory) return;
+    linkMutation.save(editingLink?.id, { name: linkName, description: linkDescription, url: linkUrl, icon: linkIcon, iconKind: linkIconKind, iconUrl: linkIconUrl, categoryId: validLinkCategory, featured: editingLink?.featured ?? false, visible: editingLink?.visible ?? true, connectivityEnabled: linkConnectivity });
+  };
+  const linkDelete = useMutation({ mutationFn: deleteLink, onSuccess: () => { success("链接已删除"); refresh(); }, onError: (error: Error) => failure(error, "删除失败") });
+  const serviceMutation = useSaveMutation(createService, updateService, () => { success("服务已保存"); resetService(); void refresh(); }, (error) => failure(error, "服务保存失败"));
+  const saveService = () => serviceMutation.save(editingService?.id, { name: serviceName, enabled: serviceEnabled, checkType: serviceCheckType || "none", target: serviceTarget, port: Number(servicePort) || 0 });
+  const serviceDelete = useMutation({ mutationFn: deleteService, onSuccess: () => { success("服务已删除"); refresh(); }, onError: (error: Error) => failure(error, "删除失败") });
+  const serviceRefresh = useMutation({ mutationFn: refreshService, onSuccess: () => { success("服务状态已刷新"); refresh(); }, onError: (error: Error) => failure(error, "服务刷新失败") });
+  const subscriptionMutation = useSaveMutation(createSubscription, updateSubscription, () => { success("订阅已保存"); resetSubscription(); void refresh(); }, (error) => failure(error, "订阅保存失败"));
+  const saveSubscription = () => subscriptionMutation.save(editingSubscription?.id, { type: subscriptionType, name: subscriptionName, url: subscriptionUrl, enabled: subscriptionEnabled, intervalSeconds: Number(subscriptionInterval) || 900 });
+  const subscriptionDelete = useMutation({ mutationFn: deleteSubscription, onSuccess: () => { success("订阅已删除"); refresh(); }, onError: (error: Error) => failure(error, "删除失败") });
+  const subscriptionRefresh = useMutation({ mutationFn: refreshSubscription, onSuccess: () => { success("订阅已刷新"); refresh(); }, onError: (error: Error) => failure(error, "订阅刷新失败") });
+  const saving = categoryMutation.isPending || linkMutation.isPending || serviceMutation.isPending || subscriptionMutation.isPending;
+  const busy = saving || categoryDelete.isPending || linkDelete.isPending || serviceDelete.isPending || subscriptionDelete.isPending;
 
   const startCategoryEdit = (category: Category) => { setEditingCategory(category); setCategoryName(category.name); setCategoryDescription(category.description); setCategoryIcon(category.icon); setCategoryIconKind(category.iconKind ?? "builtin"); setCategoryIconUrl(category.iconUrl ?? ""); setTab("categories"); };
   const startLinkEdit = (item: LinkItem) => { setEditingLink(item); setLinkName(item.name); setLinkDescription(item.description); setLinkUrl(item.url); setLinkIcon(item.icon); setLinkIconKind(item.iconKind ?? "builtin"); setLinkIconUrl(item.iconUrl ?? ""); setLinkConnectivity(item.connectivityEnabled !== false); setLinkCategory(item.categoryId); setTab("links"); };
@@ -995,9 +776,12 @@ function AdminPage({ data }: { data: BootstrapData }) {
   return <motion.main className="page-content admin-page route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
     <div className="page-heading"><div><span className="eyebrow">管理控制台</span><h1>设置</h1><p>内容保存后立即生效；服务和订阅按配置刷新。</p></div><div className={`admin-status ${session.data?.authenticated ? "" : "is-locked"}`}>{session.data?.authenticated ? <><ShieldCheck size={16} /> 已登录</> : <><LogIn size={16} /> 需要登录</>}</div></div>
     {!session.data?.authenticated && <form className="admin-login" onSubmit={(event) => { event.preventDefault(); loginMutation.mutate(); }}><div><span className="eyebrow">管理员访问</span><h2>登录后编辑导航</h2><p>公开页面无需登录，只有保存配置时需要管理员会话。</p></div><div className="admin-login-fields"><label><span className="visually-hidden">管理员密码</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="输入管理员密码" autoComplete="current-password" /></label><button className="primary-button" type="submit" disabled={!password || loginMutation.isPending}><LogIn size={16} /> {loginMutation.isPending ? "登录中" : "登录"}</button></div>{loginError && <span className="login-error">{loginError}</span>}</form>}
-    {session.data?.authenticated && <div className="admin-account-bar"><span><Check size={15} /> 当前会话有效，修改会直接写入 SQLite</span><button className="quiet-button" onClick={() => logoutMutation.mutate()}><LogOut size={15} /> 退出</button></div>}
+    {session.error && <p className="settings-error" role="alert">无法确认登录状态：{session.error.message}</p>}
+    {session.data?.authenticated && <div className="admin-account-bar"><span><Check size={15} /> 当前会话有效，修改会直接写入 SQLite</span><button className="quiet-button" disabled={busy || logoutMutation.isPending} onClick={() => logoutMutation.mutate()}><LogOut size={15} /> 退出</button></div>}
     {session.data?.authenticated && (
-      <div className="admin-tabs" role="tablist">
+      <fieldset className="admin-fields" disabled={busy} aria-busy={busy}>
+      <Tabs.Root value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
+      <Tabs.List className="admin-tabs" aria-label="管理分区">
         {[
           { id: "categories", label: "分类", icon: <LayoutGrid size={16} /> },
           { id: "links", label: "链接", icon: <Link2 size={16} /> },
@@ -1005,26 +789,71 @@ function AdminPage({ data }: { data: BootstrapData }) {
           { id: "subscriptions", label: "动态订阅", icon: <Rss size={16} /> },
           { id: "settings", label: "外观", icon: <SlidersHorizontal size={16} /> },
         ].map((item) => (
-          <button
-            role="tab"
-            aria-selected={tab === item.id}
+          <Tabs.Trigger value={item.id}
             className={tab === item.id ? "active" : ""}
-            onClick={() => setTab(item.id as typeof tab)}
             key={item.id}
           >
             {tab === item.id && <motion.span layoutId="active-admin-tab" className="tab-pill-active" transition={{ type: "spring", bounce: 0.15, duration: 0.35 }} />}
             {item.icon}
             <span>{item.label}</span>
-          </button>
+          </Tabs.Trigger>
         ))}
-      </div>
-    )}
-    {feedback && <div className="feedback-banner"><Check size={16} /> {feedback}<button onClick={() => setFeedback("")} aria-label="关闭提示"><X size={15} /></button></div>}
-    {session.data?.authenticated && tab === "categories" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">目录结构</span><h2>收藏夹</h2></div><button className="primary-button" onClick={() => { setEditingCategory(null); setCategoryName(""); setCategoryDescription(""); setCategoryIcon("folder"); setCategoryIconKind("builtin"); setCategoryIconUrl(""); }}><Plus size={16} /> 新增收藏夹</button></div><div className="admin-list">{data.categories.map((category) => <div className="admin-list-row" key={category.id}><span className="admin-drag">⋮⋮</span><span className="admin-item-icon"><ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={18} /></span><span className="admin-item-copy"><strong>{category.name}</strong><small>{category.description} · {category.links.length} 个链接</small></span><button className="icon-button subtle" onClick={() => startCategoryEdit(category)} title="编辑收藏夹"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => categoryDelete.mutate(category.id)} title="删除收藏夹"><Trash2 size={16} /></button></div>)}</div></section><CategoryForm editing={editingCategory} name={categoryName} description={categoryDescription} icon={categoryIcon} iconKind={categoryIconKind} iconUrl={categoryIconUrl} setName={setCategoryName} setDescription={setCategoryDescription} setIcon={setCategoryIcon} setIconKind={setCategoryIconKind} setIconUrl={setCategoryIconUrl} onSubmit={() => categoryMutation.mutate()} onCancel={() => setEditingCategory(null)} /></div>}
-    {session.data?.authenticated && tab === "links" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">链接目录</span><h2>全部链接</h2></div><button className="primary-button" onClick={() => { setEditingLink(null); setLinkName(""); setLinkDescription(""); setLinkUrl(""); setLinkIcon("globe"); setLinkIconKind("builtin"); setLinkIconUrl(""); setLinkConnectivity(true); }}><Plus size={16} /> 新增链接</button></div><div className="admin-list">{data.categories.flatMap((category) => category.links.map((item) => ({ item, category }))).map(({ item, category }) => <div className="admin-list-row" key={item.id}><span className="admin-item-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={18} /></span><span className="admin-item-copy"><strong>{item.name}</strong><small>{category.name} · {item.url}</small></span><button className="icon-button subtle" onClick={() => startLinkEdit(item)} title="编辑链接"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => linkDelete.mutate(item.id)} title="删除链接"><Trash2 size={16} /></button></div>)}</div></section><LinkForm editing={editingLink} name={linkName} description={linkDescription} url={linkUrl} icon={linkIcon} iconKind={linkIconKind} iconUrl={linkIconUrl} connectivityEnabled={linkConnectivity} categoryId={linkCategory} categories={data.categories} setName={setLinkName} setDescription={setLinkDescription} setUrl={setLinkUrl} setIcon={setLinkIcon} setIconKind={setLinkIconKind} setIconUrl={setLinkIconUrl} setConnectivityEnabled={setLinkConnectivity} setCategoryId={setLinkCategory} onSubmit={() => linkMutation.mutate()} onCancel={() => setEditingLink(null)} /></div>}
-    {session.data?.authenticated && tab === "services" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">关注清单</span><h2>服务状态</h2></div><button className="primary-button" onClick={() => { setEditingService(null); setServiceName(""); setServiceEnabled(true); setServiceCheckType("none"); setServiceTarget(""); setServicePort("443"); }}><Plus size={16} /> 新增服务</button></div><div className="admin-list">{data.services.map((item) => <div className="admin-list-row" key={item.id}><span className={`status-dot ${item.status}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.checkType === "none" ? "未配置检查" : `${(item.checkType ?? "none").toUpperCase()} · ${item.target || ""}${item.port ? `:${item.port}` : ""}`} · {item.status === "online" ? "正常" : item.status === "degraded" ? "异常" : item.status === "offline" ? "离线" : "待检查"}</small></span><button className="icon-button subtle" onClick={() => serviceRefresh.mutate(item.id)} title="刷新服务状态"><RefreshCw size={16} /></button><button className="icon-button subtle" onClick={() => startServiceEdit(item)} title="编辑服务"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => serviceDelete.mutate(item.id)} title="删除服务"><Trash2 size={16} /></button></div>)}</div></section><ServiceForm editing={editingService} name={serviceName} enabled={serviceEnabled} checkType={serviceCheckType ?? "none"} target={serviceTarget} port={servicePort} setName={setServiceName} setEnabled={setServiceEnabled} setCheckType={setServiceCheckType} setTarget={setServiceTarget} setPort={setServicePort} onSubmit={() => serviceMutation.mutate()} onCancel={() => setEditingService(null)} /></div>}
-    {session.data?.authenticated && tab === "subscriptions" && <div className="admin-grid"><section className="admin-section"><div className="section-title"><div><span className="eyebrow">关注内容</span><h2>动态订阅</h2></div><button className="primary-button" onClick={() => { setEditingSubscription(null); setSubscriptionType("rss"); setSubscriptionName(""); setSubscriptionUrl(""); setSubscriptionEnabled(true); setSubscriptionInterval("900"); }}><Plus size={16} /> 新增订阅</button></div><div className="admin-list">{(data.subscriptions ?? []).map((item) => <div className="admin-list-row" key={item.id}><span className={`source-dot ${item.type}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.type.toUpperCase()} · {item.itemCount ?? 0} 条缓存{item.lastError ? ` · ${item.lastError}` : ""}</small></span><button className="icon-button subtle" onClick={() => subscriptionRefresh.mutate(item.id)} title="刷新订阅"><RefreshCw size={16} /></button><button className="icon-button subtle" onClick={() => startSubscriptionEdit(item)} title="编辑订阅"><Edit3 size={16} /></button><button className="icon-button subtle danger" onClick={() => subscriptionDelete.mutate(item.id)} title="删除订阅"><Trash2 size={16} /></button></div>)}</div></section><SubscriptionForm editing={editingSubscription} type={subscriptionType} name={subscriptionName} url={subscriptionUrl} enabled={subscriptionEnabled} interval={subscriptionInterval} setType={setSubscriptionType} setName={setSubscriptionName} setUrl={setSubscriptionUrl} setEnabled={setSubscriptionEnabled} setInterval={setSubscriptionInterval} onSubmit={() => subscriptionMutation.mutate()} onCancel={() => setEditingSubscription(null)} /></div>}
+      </Tabs.List>
+    {feedback && <div className={`feedback-banner ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}>{feedback.kind === "error" ? <CircleAlert size={16} /> : <Check size={16} />}<span>{feedback.message}</span><button onClick={() => setFeedback(null)} aria-label="关闭提示"><X size={15} /></button></div>}
+      <Tabs.Content value={tab}>
+      {tab === "categories" && <div className="admin-grid">
+        <section className="admin-section">
+          <div className="section-title"><div><span className="eyebrow">目录结构</span><h2>收藏夹</h2></div><button className="primary-button" onClick={resetCategory}><Plus size={16} /> 新增收藏夹</button></div>
+          <div className="admin-list">{data.categories.map((category) => <div className="admin-list-row" key={category.id}>
+            <span className="admin-item-icon"><ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={18} /></span>
+            <span className="admin-item-copy"><strong>{category.name}</strong><small>{category.description} · {category.links.length} 个链接</small></span>
+            <button className="icon-button subtle" onClick={() => startCategoryEdit(category)} title="编辑收藏夹"><Edit3 size={16} /></button>
+            <button className="icon-button subtle danger" onClick={() => categoryDelete.mutate(category.id)} title="删除收藏夹"><Trash2 size={16} /></button>
+          </div>)}</div>
+        </section>
+        <CategoryForm editing={editingCategory} name={categoryName} description={categoryDescription} icon={categoryIcon} iconKind={categoryIconKind} iconUrl={categoryIconUrl} setName={setCategoryName} setDescription={setCategoryDescription} setIcon={setCategoryIcon} setIconKind={setCategoryIconKind} setIconUrl={setCategoryIconUrl} onSubmit={saveCategory} onCancel={resetCategory} />
+      </div>}
+      {tab === "links" && <div className="admin-grid">
+        <section className="admin-section">
+          <div className="section-title"><div><span className="eyebrow">链接目录</span><h2>全部链接</h2></div><button className="primary-button" onClick={resetLink}><Plus size={16} /> 新增链接</button></div>
+          <div className="admin-list">{data.categories.flatMap((category) => category.links.map((item) => ({ item, category }))).map(({ item, category }) => <div className="admin-list-row" key={item.id}>
+            <span className="admin-item-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={18} /></span>
+            <span className="admin-item-copy"><strong>{item.name}</strong><small>{category.name} · {item.url}</small></span>
+            <button className="icon-button subtle" onClick={() => startLinkEdit(item)} title="编辑链接"><Edit3 size={16} /></button>
+            <button className="icon-button subtle danger" onClick={() => linkDelete.mutate(item.id)} title="删除链接"><Trash2 size={16} /></button>
+          </div>)}</div>
+        </section>
+        <LinkForm editing={editingLink} name={linkName} description={linkDescription} url={linkUrl} icon={linkIcon} iconKind={linkIconKind} iconUrl={linkIconUrl} connectivityEnabled={linkConnectivity} categoryId={validLinkCategory} categories={data.categories} setName={setLinkName} setDescription={setLinkDescription} setUrl={setLinkUrl} setIcon={setLinkIcon} setIconKind={setLinkIconKind} setIconUrl={setLinkIconUrl} setConnectivityEnabled={setLinkConnectivity} setCategoryId={setLinkCategory} onSubmit={saveLink} onCancel={resetLink} />
+      </div>}
+      {tab === "services" && <div className="admin-grid">
+        <section className="admin-section">
+          <div className="section-title"><div><span className="eyebrow">关注清单</span><h2>服务状态</h2></div><button className="primary-button" onClick={resetService}><Plus size={16} /> 新增服务</button></div>
+          <div className="admin-list">{data.services.map((item) => <div className="admin-list-row" key={item.id}>
+            <span className={`status-dot ${item.status}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.checkType === "none" ? "未配置检查" : `${(item.checkType ?? "none").toUpperCase()} · ${item.target || ""}${item.port ? `:${item.port}` : ""}`} · {item.status === "online" ? "正常" : item.status === "degraded" ? "异常" : item.status === "offline" ? "离线" : "待检查"}</small></span>
+            <button className="icon-button subtle" onClick={() => serviceRefresh.mutate(item.id)} title="刷新服务状态"><RefreshCw size={16} /></button>
+            <button className="icon-button subtle" onClick={() => startServiceEdit(item)} title="编辑服务"><Edit3 size={16} /></button>
+            <button className="icon-button subtle danger" onClick={() => serviceDelete.mutate(item.id)} title="删除服务"><Trash2 size={16} /></button>
+          </div>)}</div>
+        </section>
+        <ServiceForm editing={editingService} name={serviceName} enabled={serviceEnabled} checkType={serviceCheckType ?? "none"} target={serviceTarget} port={servicePort} setName={setServiceName} setEnabled={setServiceEnabled} setCheckType={setServiceCheckType} setTarget={setServiceTarget} setPort={setServicePort} onSubmit={saveService} onCancel={resetService} />
+      </div>}
+      {tab === "subscriptions" && <div className="admin-grid">
+        <section className="admin-section">
+          <div className="section-title"><div><span className="eyebrow">关注内容</span><h2>动态订阅</h2></div><button className="primary-button" onClick={resetSubscription}><Plus size={16} /> 新增订阅</button></div>
+          <div className="admin-list">{(data.subscriptions ?? []).map((item) => <div className="admin-list-row" key={item.id}>
+            <span className={`source-dot ${item.type}`} /><span className="admin-item-copy"><strong>{item.name}</strong><small>{item.type.toUpperCase()} · {item.itemCount ?? 0} 条缓存{item.lastError ? ` · ${item.lastError}` : ""}</small></span>
+            <button className="icon-button subtle" onClick={() => subscriptionRefresh.mutate(item.id)} title="刷新订阅"><RefreshCw size={16} /></button>
+            <button className="icon-button subtle" onClick={() => startSubscriptionEdit(item)} title="编辑订阅"><Edit3 size={16} /></button>
+            <button className="icon-button subtle danger" onClick={() => subscriptionDelete.mutate(item.id)} title="删除订阅"><Trash2 size={16} /></button>
+          </div>)}</div>
+        </section>
+        <SubscriptionForm editing={editingSubscription} type={subscriptionType} name={subscriptionName} url={subscriptionUrl} enabled={subscriptionEnabled} interval={subscriptionInterval} setType={setSubscriptionType} setName={setSubscriptionName} setUrl={setSubscriptionUrl} setEnabled={setSubscriptionEnabled} setInterval={setSubscriptionInterval} onSubmit={saveSubscription} onCancel={resetSubscription} />
+      </div>}
     {session.data?.authenticated && tab === "settings" && <SettingsPanel data={data} />}
+      </Tabs.Content>
+      </Tabs.Root>
+      </fieldset>
+    )}
   </motion.main>;
 }
 
@@ -1037,7 +866,20 @@ function CategoryForm({ editing, name, description, icon, iconKind, iconUrl, set
 }
 
 function LinkForm({ editing, name, description, url, icon, iconKind, iconUrl, connectivityEnabled, categoryId, categories, setName, setDescription, setUrl, setIcon, setIconKind, setIconUrl, setConnectivityEnabled, setCategoryId, onSubmit, onCancel }: { editing: LinkItem | null; name: string; description: string; url: string; icon: string; iconKind: "builtin" | "url"; iconUrl: string; connectivityEnabled: boolean; categoryId: number; categories: Category[]; setName: (value: string) => void; setDescription: (value: string) => void; setUrl: (value: string) => void; setIcon: (value: string) => void; setIconKind: (value: "builtin" | "url") => void; setIconUrl: (value: string) => void; setConnectivityEnabled: (value: boolean) => void; setCategoryId: (value: number) => void; onSubmit: () => void; onCancel: () => void }) {
-  return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑链接" : "新建链接"}</span><h2>{editing ? editing.name : "添加一个链接"}</h2></div></div><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：Notion" /></label><label>描述<input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="简短的用途描述" /></label><label>地址<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://" inputMode="url" /></label><label>所属分类<select value={categoryId} onChange={(event) => setCategoryId(Number(event.target.value))}>{categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label><IconFields icon={icon} iconKind={iconKind} iconUrl={iconUrl} setIcon={setIcon} setIconKind={setIconKind} setIconUrl={setIconUrl} /><label className="checkbox-row"><input type="checkbox" checked={connectivityEnabled} onChange={(event) => setConnectivityEnabled(event.target.checked)} /> 在主页显示本机连通性</label><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim() || !url.trim()}><Check size={16} /> 保存链接</button></div></section>;
+  return <section className="editor-panel">
+    <div className="section-title"><div><span className="eyebrow">{editing ? "编辑链接" : "新建链接"}</span><h2>{editing ? editing.name : "添加一个链接"}</h2></div></div>
+    <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：Notion" /></label>
+    <label>描述<input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="简短的用途描述" /></label>
+    <label>地址<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://" inputMode="url" /></label>
+    <label>所属分类<select value={categoryId} disabled={categories.length === 0} onChange={(event) => setCategoryId(Number(event.target.value))}>
+      {categories.length === 0 && <option value={0}>请先创建收藏夹</option>}
+      {categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
+    </select></label>
+    {categories.length === 0 && <p className="form-empty" role="status">尚无收藏夹，请先在分类分区创建。</p>}
+    <IconFields icon={icon} iconKind={iconKind} iconUrl={iconUrl} setIcon={setIcon} setIconKind={setIconKind} setIconUrl={setIconUrl} />
+    <label className="checkbox-row"><input type="checkbox" checked={connectivityEnabled} onChange={(event) => setConnectivityEnabled(event.target.checked)} /> 在主页显示本机连通性</label>
+    <div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim() || !url.trim() || !categories.some((category) => category.id === categoryId)}><Check size={16} /> 保存链接</button></div>
+  </section>;
 }
 
 function ServiceForm({ editing, name, enabled, checkType, target, port, setName, setEnabled, setCheckType, setTarget, setPort, onSubmit, onCancel }: { editing: ServiceStatus | null; name: string; enabled: boolean; checkType: "none" | "http" | "tcp"; target: string; port: string; setName: (value: string) => void; setEnabled: (value: boolean) => void; setCheckType: (value: ServiceStatus["checkType"]) => void; setTarget: (value: string) => void; setPort: (value: string) => void; onSubmit: () => void; onCancel: () => void }) {
@@ -1064,11 +906,11 @@ function SettingsPanel({ data }: { data: BootstrapData }) {
   const [clockSpeed, setClockSpeed] = useState(String(appearance.clockSpeed || 1));
   const [saveError, setSaveError] = useState("");
   const mutation = useMutation({
-    mutationFn: () => updateSettings({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, theme: themeDefault, clockStyle, clock24Hour, clockSeconds, clockColor, clockSpeed: Number(clockSpeed) || 1 }),
+    mutationFn: () => updateSettings({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, theme: themeDefault, clockStyle, clock24Hour, clockSeconds, clockColor, clockSpeed: Math.min(3, Math.max(1, Math.round(Number(clockSpeed) || 1))) }),
     onSuccess: () => { setSaveError(""); queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); },
     onError: (error: Error) => setSaveError(error.message || "保存设置失败"),
   });
-  return <section className="settings-form"><div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending}><Check size={16} /> {mutation.isPending ? "保存中" : "保存设置"}</button></div><div className="settings-grid"><label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label><label>默认搜索引擎<select value={defaultEngine} onChange={(event) => setDefaultEngine(event.target.value)}>{engineOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label><label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label><label>主题默认值<select value={themeDefault} onChange={(event) => setThemeDefault(event.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>时钟样式<select value={clockStyle} onChange={(event) => setClockStyle(event.target.value as AppearanceSettings["clockStyle"])}>{clockStyles.map((style) => <option key={style} value={style}>{style === "plain" ? "标准" : style === "flip" ? "翻页" : style === "ticker" ? "滚动" : "柔和发光"}</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={clock24Hour} onChange={(event) => setClock24Hour(event.target.checked)} /> 24 小时制</label><label className="checkbox-row"><input type="checkbox" checked={clockSeconds} onChange={(event) => setClockSeconds(event.target.checked)} /> 显示秒数</label><label>时钟颜色<input type="color" value={clockColor} onChange={(event) => setClockColor(event.target.value)} /></label><label>动画速度<input type="number" min="1" max="3" value={clockSpeed} onChange={(event) => setClockSpeed(event.target.value)} /></label></div>{saveError && <p className="settings-error">{saveError}</p>}<div className="settings-note"><CircleHelp size={17} /><span>主页主题按钮按“跟随系统 → 浅色 → 深色”循环；时钟效果只影响顶部显示；时区请填写 IANA 名称，例如 Asia/Shanghai。</span></div></section>;
+  return <section className="settings-form"><div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending}><Check size={16} /> {mutation.isPending ? "保存中" : "保存设置"}</button></div><div className="settings-grid"><label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label><label>默认搜索引擎<select value={defaultEngine} onChange={(event) => setDefaultEngine(event.target.value)}>{engineOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label><label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label><label>主题默认值<select value={themeDefault} onChange={(event) => setThemeDefault(event.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>时钟样式<select value={clockStyle} onChange={(event) => setClockStyle(event.target.value as AppearanceSettings["clockStyle"])}>{clockStyles.map((style) => <option key={style} value={style}>{style === "plain" ? "标准" : style === "flip" ? "翻页" : style === "ticker" ? "滚动" : "柔和发光"}</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={clock24Hour} onChange={(event) => setClock24Hour(event.target.checked)} /> 24 小时制</label><label className="checkbox-row"><input type="checkbox" checked={clockSeconds} onChange={(event) => setClockSeconds(event.target.checked)} /> 显示秒数</label><label>时钟颜色<input type="color" value={clockColor} onChange={(event) => setClockColor(event.target.value)} /></label><label>动画速度<input type="number" min="1" max="3" value={clockSpeed} onChange={(event) => setClockSpeed(event.target.value)} /></label></div>{saveError && <p className="settings-error">{saveError}</p>}<div className="settings-note"><CircleHelp size={17} /><span>主页主题菜单可选择跟随系统、浅色或深色；时钟效果只影响顶部显示；时区请填写 IANA 名称，例如 Asia/Shanghai。</span></div></section>;
 }
 
 export { App };

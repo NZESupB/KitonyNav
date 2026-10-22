@@ -1,6 +1,6 @@
 {
   "name": "kitonynav",
-  "version": "0.0.2-dev.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,13 +14,15 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.66.8",
-    "vite": "6.4.2",
+    "lucide-react": "0.511.0",
+    "motion": "12.23.12",
+    "radix-ui": "1.8.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-icons": "5.5.0",
     "react-router-dom": "7.6.2",
-    "lucide-react": "0.511.0",
-    "motion": "12.23.12"
+    "vite": "6.4.2",
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "9.35.0",

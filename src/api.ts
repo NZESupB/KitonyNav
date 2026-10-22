@@ -1,12 +1,27 @@
-import { fallbackBootstrap, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription } from "./data";
+import { type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription } from "./data";
 
 export type SessionState = { authenticated: boolean; csrfToken?: string };
 
 let csrfTokenMemory = "";
 
-function storedCsrfToken() {
-  if (csrfTokenMemory) return csrfTokenMemory;
-  return typeof sessionStorage === "undefined" ? "" : sessionStorage.getItem("kitonynav-csrf") || "";
+function currentCsrfToken() {
+  try {
+    if (typeof document === "undefined") return csrfTokenMemory;
+    const cookie = document.cookie.split(/;\s*/).find((part) => part.startsWith("kitonynav_csrf="));
+    // Cookie 随同源会话跨标签页更新，不沿用另一会话留下的内存令牌。
+    csrfTokenMemory = cookie ? decodeURIComponent(cookie.slice("kitonynav_csrf=".length)) : "";
+  } catch {
+    // Cookie 不可读时，仅保留本次登录响应中的令牌。
+  }
+  return csrfTokenMemory;
+}
+
+function clearLegacyCsrfStorage() {
+  try {
+    sessionStorage.removeItem("kitonynav-csrf");
+  } catch {
+    // 临时存储不可用不能改变已经完成的登录或退出结果。
+  }
 }
 
 async function errorMessage(response: Response) {
@@ -22,12 +37,10 @@ async function errorMessage(response: Response) {
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const method = (init?.method || "GET").toUpperCase();
-  const csrfToken = storedCsrfToken() || (typeof document === "undefined"
-    ? ""
-    : document.cookie.split("; ").find((part) => part.startsWith("kitonynav_csrf="))?.split("=")[1] || "");
+  const csrfToken = method === "GET" || method === "HEAD" ? "" : currentCsrfToken();
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  if (method !== "GET" && method !== "HEAD" && csrfToken) headers.set("X-CSRF-Token", decodeURIComponent(csrfToken));
+  if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
   const response = await fetch(input, {
     ...init,
     credentials: "include",
@@ -39,27 +52,19 @@ async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
-export async function fetchBootstrap(): Promise<BootstrapData> {
-  try {
-    return await request<BootstrapData>("/api/v1/bootstrap");
-  } catch {
-    return fallbackBootstrap;
-  }
+export function fetchBootstrap(signal?: AbortSignal): Promise<BootstrapData> {
+  return request<BootstrapData>("/api/v1/bootstrap", { signal });
 }
 
-export async function fetchSession(): Promise<SessionState> {
-  try {
-    return await request<SessionState>("/api/v1/auth/session");
-  } catch {
-    return { authenticated: false };
-  }
+export function fetchSession(): Promise<SessionState> {
+  return request<SessionState>("/api/v1/auth/session");
 }
 
 export async function login(password: string) {
   const result = await request<SessionState>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ password }) });
   if (result.csrfToken) {
     csrfTokenMemory = result.csrfToken;
-    if (typeof sessionStorage !== "undefined") sessionStorage.setItem("kitonynav-csrf", result.csrfToken);
+    clearLegacyCsrfStorage();
   }
   return result;
 }
@@ -67,7 +72,7 @@ export async function login(password: string) {
 export async function logout() {
   const result = await request<void>("/api/v1/auth/logout", { method: "POST" });
   csrfTokenMemory = "";
-  if (typeof sessionStorage !== "undefined") sessionStorage.removeItem("kitonynav-csrf");
+  clearLegacyCsrfStorage();
   return result;
 }
 
@@ -148,6 +153,6 @@ export async function refreshSubscription(id: number) {
   return request<Subscription>(`/api/v1/admin/subscriptions/${id}/refresh`, { method: "POST" });
 }
 
-export async function fetchClientNetwork() {
-  return request<{ address?: string; family?: string; source?: string; status: string }>("/api/v1/network/client");
+export async function fetchClientNetwork(signal?: AbortSignal) {
+  return request<{ address?: string; family?: string; source?: string; status: string }>("/api/v1/network/client", { signal });
 }
