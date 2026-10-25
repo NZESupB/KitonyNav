@@ -116,6 +116,7 @@ type bootstrapResponse struct {
 type appearanceSettings struct {
 	Theme        string `json:"theme"`
 	ClockStyle   string `json:"clockStyle"`
+	DateStyle    string `json:"dateStyle"`
 	Clock24Hour  bool   `json:"clock24Hour"`
 	ClockSeconds bool   `json:"clockSeconds"`
 	ClockColor   string `json:"clockColor"`
@@ -144,17 +145,18 @@ type linkPayload struct {
 }
 
 type settingsPayload struct {
-	BrandName        string `json:"brandName"`
-	BrandDescription string `json:"brandDescription"`
-	DefaultEngine    string `json:"defaultEngine"`
-	WeatherLocation  string `json:"weatherLocation"`
-	Timezone         string `json:"timezone"`
-	Theme            string `json:"theme"`
-	ClockStyle       string `json:"clockStyle"`
-	Clock24Hour      bool   `json:"clock24Hour"`
-	ClockSeconds     bool   `json:"clockSeconds"`
-	ClockColor       string `json:"clockColor"`
-	ClockSpeed       int    `json:"clockSpeed"`
+	BrandName        string  `json:"brandName"`
+	BrandDescription string  `json:"brandDescription"`
+	DefaultEngine    string  `json:"defaultEngine"`
+	WeatherLocation  string  `json:"weatherLocation"`
+	Timezone         string  `json:"timezone"`
+	Theme            string  `json:"theme"`
+	ClockStyle       string  `json:"clockStyle"`
+	DateStyle        *string `json:"dateStyle"`
+	Clock24Hour      bool    `json:"clock24Hour"`
+	ClockSeconds     bool    `json:"clockSeconds"`
+	ClockColor       string  `json:"clockColor"`
+	ClockSpeed       int     `json:"clockSpeed"`
 }
 
 type servicePayload struct {
@@ -471,7 +473,8 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 	result.Settings.Timezone = settings["timezone"]
 	result.Settings.Appearance = appearanceSettings{
 		Theme:        defaultString(settings["theme_default"], "system"),
-		ClockStyle:   defaultString(settings["clock_style"], "plain"),
+		ClockStyle:   defaultEnum(settings["clock_style"], "plain", "plain", "flip", "ticker", "glow", "lcd", "analog"),
+		DateStyle:    defaultEnum(settings["date_style"], "compact", "compact", "lunar", "card"),
 		Clock24Hour:  settings["clock_24_hour"] != "false",
 		ClockSeconds: settings["clock_seconds"] == "true",
 		ClockColor:   defaultString(settings["clock_color"], "#2f6ff3"),
@@ -919,11 +922,14 @@ func (s *store) updateSettings(payload settingsPayload) error {
 		"weather_location":  defaultString(payload.WeatherLocation, "上海市"),
 		"timezone":          timezone,
 		"theme_default":     defaultEnum(payload.Theme, "system", "system", "light", "dark"),
-		"clock_style":       defaultEnum(payload.ClockStyle, "plain", "plain", "flip", "ticker", "glow"),
+		"clock_style":       defaultEnum(payload.ClockStyle, "plain", "plain", "flip", "ticker", "glow", "lcd", "analog"),
 		"clock_24_hour":     strconv.FormatBool(payload.Clock24Hour),
 		"clock_seconds":     strconv.FormatBool(payload.ClockSeconds),
 		"clock_color":       defaultString(payload.ClockColor, "#2f6ff3"),
-		"clock_speed":       strconv.Itoa(defaultInt(payload.ClockSpeed, 1)),
+		"clock_speed":       strconv.Itoa(min(3, max(1, payload.ClockSpeed))),
+	}
+	if payload.DateStyle != nil {
+		values["date_style"] = defaultEnum(*payload.DateStyle, "compact", "compact", "lunar", "card")
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -1,3 +1,6 @@
+import { defaultAppearance, normalizeAppearance, type AppearanceSettings } from "./lib/appearance";
+
+export { engineOptions, engineUrls, resolveEngine } from "./lib/search";
 export type LinkItem = {
   id: number;
   name: string;
@@ -73,14 +76,7 @@ export type NetworkInfo = {
   status: "available" | "partial" | "unavailable";
 };
 
-export type AppearanceSettings = {
-  theme: "system" | "light" | "dark";
-  clockStyle: "plain" | "flip" | "ticker" | "glow";
-  clock24Hour: boolean;
-  clockSeconds: boolean;
-  clockColor: string;
-  clockSpeed: number;
-};
+export type { AppearanceSettings } from "./lib/appearance";
 
 export type BootstrapData = {
   brand: {
@@ -104,6 +100,7 @@ export type BootstrapData = {
 export function normalizeBootstrap(data: BootstrapData): BootstrapData {
   return {
     ...data,
+    settings: { ...data.settings, appearance: normalizeAppearance(data.settings.appearance) },
     categories: (data.categories ?? []).map((category) => ({ ...category, links: category.links ?? [] })),
     services: data.services ?? [],
     updates: data.updates ?? [],
@@ -140,14 +137,7 @@ export const fallbackBootstrap: BootstrapData = {
     defaultEngine: "Google",
     weatherLocation: "上海市",
     timezone: "Asia/Shanghai",
-    appearance: {
-      theme: "system",
-      clockStyle: "plain",
-      clock24Hour: true,
-      clockSeconds: false,
-      clockColor: "#2f6ff3",
-      clockSpeed: 1,
-    },
+    appearance: { ...defaultAppearance },
   },
   categories: [
     {
@@ -257,17 +247,3 @@ export const fallbackBootstrap: BootstrapData = {
   subscriptions: [],
   network: { status: "unavailable" },
 };
-
-export const engineUrls: Record<string, string> = {
-  Google: "https://www.google.com/search?q=QUERY",
-  百度: "https://www.baidu.com/s?wd=QUERY",
-  YouTube: "https://www.youtube.com/results?search_query=QUERY",
-  Steam: "https://store.steampowered.com/search/?term=QUERY",
-};
-
-export const engineOptions = Object.keys(engineUrls);
-
-// 配置里可能留有已下线的引擎名称，回落到默认引擎，避免取值 undefined 后中断搜索。
-export function resolveEngine(value: string | undefined) {
-  return value && engineUrls[value] ? value : engineOptions[0];
-}

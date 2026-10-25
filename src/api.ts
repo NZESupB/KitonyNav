@@ -1,4 +1,5 @@
 import { type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription } from "./data";
+import type { AppearanceSettings } from "./lib/appearance";
 
 export type SessionState = { authenticated: boolean; csrfToken?: string };
 
@@ -102,18 +103,12 @@ export async function deleteLink(id: number) {
   return request<void>(`/api/v1/admin/links/${id}`, { method: "DELETE" });
 }
 
-export async function updateSettings(payload: {
+export async function updateSettings(payload: AppearanceSettings & {
   brandName: string;
   brandDescription: string;
   defaultEngine: string;
   weatherLocation: string;
   timezone: string;
-  theme: "system" | "light" | "dark";
-  clockStyle: "plain" | "flip" | "ticker" | "glow";
-  clock24Hour: boolean;
-  clockSeconds: boolean;
-  clockColor: string;
-  clockSpeed: number;
 }) {
   return request<BootstrapData>("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(payload) });
 }

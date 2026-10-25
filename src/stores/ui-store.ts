@@ -6,11 +6,13 @@ export const UI_STORAGE_KEY = "kitony-ui";
 type PreferenceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type Preferences = { theme: Theme | null; collapsed: boolean };
 type UIState = Preferences & {
-  activeCategory: number | null;
+  activeSectionId: number | null;
+  searchQuery: string;
   mobileMenuOpen: boolean;
   setTheme: (theme: Theme) => void;
   setCollapsed: (collapsed: boolean) => void;
-  setActiveCategory: (activeCategory: number | null) => void;
+  setActiveSectionId: (activeSectionId: number | null) => void;
+  setSearchQuery: (searchQuery: string) => void;
   setMobileMenuOpen: (mobileMenuOpen: boolean) => void;
 };
 
@@ -68,11 +70,13 @@ export function createUIStore(storage: PreferenceStorage | undefined = browserSt
       (set) => ({
         theme: null,
         collapsed: false,
-        activeCategory: null,
+        activeSectionId: null,
+        searchQuery: "",
         mobileMenuOpen: false,
         setTheme: (theme) => set({ theme }),
         setCollapsed: (collapsed) => set({ collapsed }),
-        setActiveCategory: (activeCategory) => set({ activeCategory }),
+        setActiveSectionId: (activeSectionId) => set({ activeSectionId }),
+        setSearchQuery: (searchQuery) => set({ searchQuery }),
         setMobileMenuOpen: (mobileMenuOpen) => set({ mobileMenuOpen }),
       }),
       {

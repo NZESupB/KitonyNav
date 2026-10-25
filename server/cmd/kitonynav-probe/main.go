@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -15,7 +16,7 @@ type result struct {
 	OK        bool   `json:"ok"`
 	Host      string `json:"host"`
 	Port      int    `json:"port"`
-	LatencyMS int64  `json:"latencyMs,omitempty"`
+	LatencyMS *int64 `json:"latencyMs,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -23,7 +24,14 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:4711", "本机探针监听地址")
 	allow := flag.String("allow", "", "允许检测的目标，逗号分隔，例如 github.com:443,example.com:443")
 	flag.Parse()
-	allowed := parseAllowlist(*allow)
+	server := &http.Server{Addr: *listen, Handler: cors(probeHandler(parseAllowlist(*allow))), ReadHeaderTimeout: 3 * time.Second}
+	fmt.Printf("KitonyNav probe listening on http://%s\n", *listen)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		panic(err)
+	}
+}
+
+func probeHandler(allowed map[string]bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -44,27 +52,26 @@ func main() {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "目标不在探针 allowlist 中"})
 			return
 		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
 		started := time.Now()
-		conn, err := net.DialTimeout("tcp", key, 5*time.Second)
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", key)
 		if err != nil {
 			writeJSON(w, http.StatusOK, result{OK: false, Host: host, Port: port, Error: err.Error()})
 			return
 		}
+		latency := time.Since(started).Milliseconds()
 		_ = conn.Close()
-		writeJSON(w, http.StatusOK, result{OK: true, Host: host, Port: port, LatencyMS: time.Since(started).Milliseconds()})
+		// 指针保留成功的 0ms；失败时不输出未测得的延迟。
+		writeJSON(w, http.StatusOK, result{OK: true, Host: host, Port: port, LatencyMS: &latency})
 	})
-	server := &http.Server{Addr: *listen, Handler: cors(mux), ReadHeaderTimeout: 3 * time.Second}
-	fmt.Printf("KitonyNav probe listening on http://%s\n", *listen)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		panic(err)
-	}
+	return mux
 }
 
 func parseAllowlist(value string) map[string]bool {
 	allowed := map[string]bool{}
 	for _, item := range strings.Split(value, ",") {
-		item = strings.TrimSpace(item)
-		if item != "" {
+		if item = strings.TrimSpace(item); item != "" {
 			allowed[item] = true
 		}
 	}

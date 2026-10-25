@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { engineUrls, fallbackBootstrap, normalizeBootstrap, resolveEngine, type BootstrapData } from "./data";
 
 describe("navigation bootstrap data", () => {
-  it("keeps bang search engines mapped to valid destinations", () => {
+  it("keeps registered search engines mapped to valid destinations", () => {
     expect(engineUrls.Google).toContain("QUERY");
     expect(engineUrls.百度).toContain("QUERY");
     expect(engineUrls.YouTube).toContain("QUERY");
     expect(engineUrls.Steam).toContain("QUERY");
   });
 
-  it("ships the first-viewport categories in a stable order", () => {
+  it("keeps navigation categories in a stable order", () => {
     expect(fallbackBootstrap.categories.slice(0, 3).map((category) => category.name)).toEqual(["常用", "开发", "工具"]);
     expect(fallbackBootstrap.categories.every((category) => category.links.length > 0)).toBe(true);
   });
@@ -36,7 +36,8 @@ describe("navigation bootstrap data", () => {
 
   it("falls back to the default engine when the configured one is unknown", () => {
     expect(resolveEngine("百度")).toBe("百度");
-    expect(resolveEngine("Bing")).toBe("Google");
+    expect(resolveEngine("Bing")).toBe("Bing");
+    expect(resolveEngine("unknown-engine")).toBe("Google");
     expect(resolveEngine(undefined)).toBe("Google");
   });
 });

@@ -1,18 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LinkItem, ServiceStatus } from "../data";
 import { withRequestTimeout } from "../lib/network";
+import { checkConnectivity, completeConnectivity, connectivityLifetime, expireConnectivity, type CheckTarget, type ConnectivityResult } from "../lib/connectivity";
+export type { ConnectivityResult } from "../lib/connectivity";
 
-export type ConnectivityResult = {
-  state: "reachable" | "unreachable" | "unknown" | "checking";
-  latencyMs?: number;
-  source: "probe" | "browser";
-  reason?: string;
-  checkedAt?: number;
-  expiresAt?: number;
-};
 export type ProbeTarget = { id: number; host: string; port: number };
-type CheckTarget = { id: number; key: string; url: string };
-const lifetimeMs = 60_000;
 
 export function linkProbeTargets(links: LinkItem[]): ProbeTarget[] {
   return links.flatMap((link) => {
@@ -32,41 +24,18 @@ export function serviceProbeTargets(services: ServiceStatus[]): ProbeTarget[] {
     ? [{ id: service.id, host: service.target, port: service.port }] : []);
 }
 
-async function checkTarget(target: CheckTarget, source: ConnectivityResult["source"], signal: AbortSignal): Promise<ConnectivityResult> {
-  return withRequestTimeout(signal, async (signal) => {
-    const started = performance.now();
-    const response = await fetch(target.url, {
-      mode: source === "browser" ? "no-cors" : "cors",
-      credentials: "omit", cache: "no-store", signal,
-    });
-    if (source === "probe") {
-      if (!response.ok) throw new Error("本机探针不可用");
-      const value = await response.json() as { ok?: boolean; latencyMs?: number };
-      if (typeof value.ok !== "boolean") throw new Error("本机探针返回格式不正确");
-      return {
-        state: value.ok ? "reachable" : "unreachable", source,
-        latencyMs: value.ok && typeof value.latencyMs === "number" && Number.isFinite(value.latencyMs) && value.latencyMs >= 0 ? value.latencyMs : undefined,
-      };
-    }
-    if (response.type === "opaque" || response.type === "opaqueredirect") {
-      return { state: "unknown", source, reason: "收到不可读的 HTTP 响应，浏览器无法确认状态" };
-    }
-    return {
-      state: response.ok ? "reachable" : "unreachable", source,
-      latencyMs: Math.max(0, Math.round(performance.now() - started)),
-      reason: `HTTP ${response.status}`,
-    };
-  });
-}
-
-function useConnectivityChecks(targets: CheckTarget[], source: ConnectivityResult["source"]) {
+function useConnectivityChecks(targets: CheckTarget[], healthUrl: string) {
   const [results, setResults] = useState<Record<string, ConnectivityResult>>({});
+  // Bootstrap 轮询得到等价的新数组时不重启检测，在途任务按完整目标键隔离。
+  const signature = JSON.stringify(targets);
   useEffect(() => {
+    const source = "probe";
+    const configured = JSON.parse(signature) as CheckTarget[];
+    const uniqueTargets = [...new Map(configured.map((target) => [target.key, target])).values()];
     let disposed = false;
     let generation = 0;
     const controllers = new Set<AbortController>();
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    const uniqueTargets = [...new Map(targets.map((target) => [target.key, target])).values()];
     const stop = () => {
       generation++;
       controllers.forEach((controller) => controller.abort());
@@ -80,10 +49,25 @@ function useConnectivityChecks(targets: CheckTarget[], source: ConnectivityResul
     };
     const run = async () => {
       stop();
-      setResults({});
       if (disposed || document.visibilityState === "hidden" || uniqueTargets.length === 0) return;
       const current = generation;
       const started = Date.now();
+      setResults((previous) => Object.fromEntries(uniqueTargets.map((target) => [target.key, previous[target.key]
+        ? { ...expireConnectivity(previous[target.key]), refreshing: true }
+        : { state: "checking", source, refreshing: true }])));
+      let probeError: string | undefined;
+      const healthController = new AbortController();
+      controllers.add(healthController);
+      try {
+        await withRequestTimeout(healthController.signal, async (signal) => {
+          const response = await fetch(healthUrl, { signal, credentials: "omit", cache: "no-store" });
+          if (!response.ok || (await response.json()).status !== "ok") throw new Error("探针健康检查失败");
+        }, 1500);
+      } catch {
+        probeError = "本机探针未启动、不可访问或被浏览器权限限制";
+      } finally {
+        controllers.delete(healthController);
+      }
       let next = 0;
       const worker = async () => {
         while (!disposed && current === generation && next < uniqueTargets.length) {
@@ -92,20 +76,22 @@ function useConnectivityChecks(targets: CheckTarget[], source: ConnectivityResul
           controllers.add(controller);
           let result: ConnectivityResult;
           try {
-            result = await checkTarget(target, source, controller.signal);
-          } catch {
-            result = { state: "unknown", source, reason: source === "probe" ? "本机探针不可用" : "浏览器无法确认" };
+            if (probeError) result = { state: "unknown", source, reason: probeError };
+            else result = await checkConnectivity(target.url, controller.signal);
+          } catch (error) {
+            result = { state: "unknown", source, reason: error instanceof Error && error.name !== "TypeError" && error.name !== "AbortError"
+              ? error.message : "本机探针不可访问或请求超时" };
           } finally {
             controllers.delete(controller);
           }
           if (disposed || current !== generation) return;
           const checkedAt = Date.now();
-          setResults((previous) => ({ ...previous, [target.key]: { ...result, checkedAt, expiresAt: checkedAt + lifetimeMs } }));
-          later(() => setResults((previous) => ({ ...previous, [target.key]: { state: "unknown", source, reason: "检测结果已过期" } })), lifetimeMs);
+          setResults((previous) => ({ ...previous, [target.key]: completeConnectivity(previous[target.key], result, checkedAt) }));
+          later(() => setResults((previous) => ({ ...previous, [target.key]: expireConnectivity(previous[target.key]) })), connectivityLifetime);
         }
       };
       await Promise.all(Array.from({ length: Math.min(4, uniqueTargets.length) }, worker));
-      if (!disposed && current === generation) later(() => void run(), Math.max(0, lifetimeMs - (Date.now() - started)));
+      if (!disposed && current === generation) later(() => void run(), Math.max(0, connectivityLifetime - (Date.now() - started)));
     };
     const onVisibility = () => void run();
     document.addEventListener("visibilitychange", onVisibility);
@@ -115,31 +101,30 @@ function useConnectivityChecks(targets: CheckTarget[], source: ConnectivityResul
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [targets, source]);
+  }, [signature, healthUrl]);
 
-  return Object.fromEntries(targets.map((target) => {
-    const result = results[target.key];
-    const valid = result && (result.expiresAt == null || result.expiresAt > Date.now());
-    return [target.id, valid ? result : { state: "unknown", source } as ConnectivityResult];
-  }));
+  return Object.fromEntries(targets.map((target) => [target.id, results[target.key]
+    ? expireConnectivity(results[target.key]) : { state: "checking", source: "probe" } as ConnectivityResult]));
 }
 
-export function useBrowserConnectivity(links: LinkItem[]) {
-  const targets = useMemo(() => links.filter((link) => link.visible !== false && link.connectivityEnabled !== false && /^https?:\/\//i.test(link.url))
-    .map((link) => ({ id: link.id, key: link.url, url: link.url })), [links]);
-  return useConnectivityChecks(targets, "browser");
-}
-
-export function useLocalProbeConnectivity(probes: ProbeTarget[]) {
+export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]) {
   let probeBase = "http://127.0.0.1:4711";
   try {
-    probeBase = localStorage.getItem("kitony-probe-url") || probeBase;
+    const saved = localStorage.getItem("kitony-probe-url");
+    if (saved && /^https?:\/\//i.test(saved)) probeBase = new URL(saved).origin;
   } catch {
-    // 存储不可用时仍可通过默认本机地址检测。
+    // 存储或旧地址无效时采用默认本机地址。
   }
-  const targets = useMemo(() => probes.map((target) => {
-    const url = `${probeBase.replace(/\/$/, "")}/tcping?host=${encodeURIComponent(target.host)}&port=${target.port}`;
-    return { id: target.id, key: url, url };
-  }), [probes, probeBase]);
-  return useConnectivityChecks(targets, "probe");
+  const probeTargets = useMemo(() => [
+    ...linkProbeTargets(links).map((target) => ({ ...target, type: "link" })),
+    ...serviceProbeTargets(services).map((target) => ({ ...target, type: "service" })),
+  ].map((target) => {
+    const url = `${probeBase}/tcping?host=${encodeURIComponent(target.host)}&port=${target.port}`;
+    return { id: `${target.type}:${target.id}`, key: url, url };
+  }), [links, services, probeBase]);
+  const probe = useConnectivityChecks(probeTargets, `${probeBase}/healthz`);
+  return {
+    links: Object.fromEntries(links.map((link) => [link.id, probe[`link:${link.id}`]])),
+    services: Object.fromEntries(serviceProbeTargets(services).map((service) => [service.id, probe[`service:${service.id}`]])),
+  };
 }

@@ -8,6 +8,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("/node_modules/")) return;
+          if (id.includes("/lunar-typescript/")) return "calendar";
           if (id.includes("/radix-ui/") || id.includes("/@radix-ui/")) return "radix";
           if (id.includes("/lucide-react/") || id.includes("/react-icons/")) return "icons";
           if (/\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return "motion";

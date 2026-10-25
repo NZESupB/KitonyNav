@@ -1,20 +1,29 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { Dialog, DropdownMenu, Popover, Tabs } from "radix-ui";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import {
   Activity, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleHelp,
-  CloudSun, Clock3, Command, Edit3, Globe2, House, LayoutGrid, Link2, LogIn, LogOut,
-  Menu, MessageCircle, Moon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus,
+  CloudSun, Edit3, Globe2, House, LayoutGrid, Link2, LogIn, LogOut,
+  Menu, MessageCircle, Moon, PanelLeftClose, PanelLeftOpen, Plus,
   RefreshCw, Rss, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, Wifi, X,
 } from "lucide-react";
 import { ItemIcon, iconOptions } from "./components/icons/ItemIcon";
 import { useMediaQuery } from "./hooks/use-media-query";
 import { UI_STORAGE_KEY, useUIStore, type Theme } from "./stores/ui-store";
 import { useSaveMutation } from "./hooks/use-save-mutation";
-import { usePageVisible } from "./hooks/use-page-visible";
-import { ClockDisplay } from "./components/ClockDisplay";
+import { ClockProvider } from "./hooks/use-clock";
+import { ClockDateWidget } from "./components/clock/ClockDateWidget";
+import { ClockSettings } from "./components/clock/ClockSettings";
+import { SearchBar } from "./components/search/SearchBar";
+import { SearchEngineSelect } from "./components/search/SearchEngineSelect";
+import { CategoryOutline } from "./components/navigation/CategoryOutline";
+import { CategorySection } from "./components/navigation/CategorySection";
+import { useCategoryOutline } from "./hooks/use-category-outline";
+import { directoryCategories } from "./lib/directory";
+import { buildSearchUrl, resolveEngine } from "./lib/search";
+import { defaultAppearance, normalizeAppearance } from "./lib/appearance";
 import {
   createCategory,
   createLink,
@@ -37,13 +46,9 @@ import {
   refreshService,
   refreshSubscription,
 } from "./api";
-import { engineOptions, engineUrls, normalizeBootstrap, resolveEngine, type AppearanceSettings, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription, type UpdateItem } from "./data";
-
-import { linkProbeTargets, serviceProbeTargets, useBrowserConnectivity, useLocalProbeConnectivity, type ConnectivityResult } from "./hooks/use-connectivity";
+import { normalizeBootstrap, type BootstrapData, type Category, type LinkItem, type ServiceStatus, type Subscription, type UpdateItem } from "./data";
+import { useDeviceConnectivity, type ConnectivityResult } from "./hooks/use-connectivity";
 import { fetchVisitorGeo, isPublicAddress, publicStunAddress, type VisitorGeo } from "./lib/network";
-
-const clockStyles: Array<AppearanceSettings["clockStyle"]> = ["plain", "flip", "ticker", "glow"];
-
 
 function relativeTime(value: string) {
   const parsed = Date.parse(value);
@@ -60,47 +65,17 @@ function relativeTime(value: string) {
   return value;
 }
 
-function useClock() {
-  const [now, setNow] = useState(() => new Date());
-  const visible = usePageVisible();
-  useEffect(() => {
-    if (!visible) return;
-    setNow(new Date());
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, [visible]);
-  return now;
-}
-
-function formatClock(now: Date, timezone: string | undefined, appearance: AppearanceSettings) {
-  const time = now.toLocaleTimeString("zh-CN", { timeZone: timezone, hour: "2-digit", minute: "2-digit", second: appearance.clockSeconds ? "2-digit" : undefined, hour12: !appearance.clock24Hour });
-  const date = now.toLocaleDateString("zh-CN", { timeZone: timezone, month: "long", day: "numeric", weekday: "short" });
-  return { time, date };
-}
-
-// 非法时区名称会让 Intl 抛出 RangeError 并中断整棵渲染树，因此只把可用名称交给格式化函数。
-function safeTimezone(timezone: string | undefined) {
-  const value = (timezone ?? "").trim();
-  if (!value) return undefined;
-  try {
-    return new Intl.DateTimeFormat("zh-CN", { timeZone: value }).resolvedOptions().timeZone || value;
-  } catch {
-    return undefined;
-  }
-}
-
-
 function themeLabel(theme: Theme) {
   return theme === "system" ? "跟随系统" : theme === "light" ? "浅色模式" : "深色模式";
 }
 
 
 function App() {
-  return <MotionConfig reducedMotion="user"><AppShell /></MotionConfig>;
+  return <ClockProvider><MotionConfig reducedMotion="user"><AppShell /></MotionConfig></ClockProvider>;
 }
 
 function AppShell() {
-  const { data, isFetching, error, dataUpdatedAt, refetch } = useQuery({
+  const { data, isFetching, error, refetch } = useQuery({
     queryKey: ["bootstrap"], queryFn: ({ signal }) => fetchBootstrap(signal),
     staleTime: 30_000, refetchInterval: 60_000, refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
@@ -170,10 +145,10 @@ function AppShell() {
           <TopBar data={appData} resolvedTheme={resolvedTheme} />
           {error && <div className="feedback-banner error" role="alert"><CircleAlert size={16} /><span>同步失败，正在显示上次成功的数据：{error.message}</span><button disabled={isFetching} onClick={() => void refetch()} aria-label="重试同步"><RefreshCw size={16} /></button></div>}
           <Routes>
-            <Route path="/" element={<HomePage data={appData} isFetching={isFetching} syncError={!!error} syncedAt={dataUpdatedAt} />} />
+            <Route path="/" element={<HomePage data={appData} />} />
             <Route path="/updates" element={<UpdatesPage data={appData} />} />
             <Route path="/admin" element={<AdminPage data={appData} />} />
-            <Route path="*" element={<HomePage data={appData} isFetching={isFetching} syncError={!!error} syncedAt={dataUpdatedAt} />} />
+            <Route path="*" element={<HomePage data={appData} />} />
           </Routes>
         </div>
       </div>
@@ -202,10 +177,7 @@ const labelAnim = (collapsed: boolean) => ({
 function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boolean }) {
   const collapsed = useUIStore((state) => state.collapsed);
   const setCollapsed = useUIStore((state) => state.setCollapsed);
-  const activeCategory = useUIStore((state) => state.activeCategory);
-  const setActiveCategory = useUIStore((state) => state.setActiveCategory);
   const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
-  const navigate = useNavigate();
   const reducedMotion = !!useReducedMotion();
   return (
     <div className="sidebar-inner">
@@ -246,47 +218,10 @@ function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boole
             }}
             style={{ overflow: "hidden" }}
           >
-            <span>收藏夹</span>
+            <span>分类大纲</span>
             <NavLink to="/admin" className="icon-button subtle" title="添加收藏夹" aria-label="添加收藏夹" onClick={() => setMobileMenuOpen(false)}><Plus size={17} /></NavLink>
           </motion.div>
-          <div className="sidebar-folders">
-            {data.categories.map((category, index) => {
-              const isSelected = activeCategory === category.id;
-              return (
-                <button
-                  className={`folder-row ${isSelected ? "selected" : ""}`}
-                  key={category.id}
-                  onClick={() => { setActiveCategory(isSelected ? null : category.id); setMobileMenuOpen(false); navigate("/"); }}
-                  aria-label={category.name}
-                  aria-pressed={isSelected}
-                  title={collapsed ? category.name : undefined}
-                >
-                  {isSelected && (
-                    <motion.span
-                      layout="position"
-                      layoutId="sidebar-folder-active-pill"
-                      className="nav-pill-active"
-                      transition={{ type: "spring", bounce: 0.12, duration: 0.32 }}
-                    />
-                  )}
-                  <span className="sidebar-icon-slot">
-                    <ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={18} />
-                  </span>
-                  <motion.div
-                    className="sidebar-text-slot"
-                    initial={false}
-                    animate={labelAnim(collapsed)}
-                    transition={labelTransition(collapsed, 0.05 + index * 0.015, reducedMotion)}
-                  >
-                    <div className="folder-text-content">
-                      <span className="folder-name">{category.name}{category.name === "常用" ? "网站" : ""}</span>
-                      <span className="folder-count">{category.links.length}</span>
-                    </div>
-                  </motion.div>
-                </button>
-              );
-            })}
-          </div>
+          <CategoryOutline categories={data.categories} collapsed={collapsed} />
           <div className="sidebar-spacer" />
           <div className="sidebar-footer">
             <button
@@ -357,11 +292,7 @@ function NavItem({
 }
 
 function TopBar({ data, resolvedTheme }: { data: BootstrapData; resolvedTheme: "light" | "dark" }) {
-  const now = useClock();
-  const appearance = data.settings.appearance ?? { theme: "system", clockStyle: "plain", clock24Hour: true, clockSeconds: false, clockColor: "#2f6ff3", clockSpeed: 1 };
-  const timezone = useMemo(() => safeTimezone(data.settings.timezone), [data.settings.timezone]);
-  const { time, date } = formatClock(now, timezone, appearance);
-  const clockClass = `clock-${appearance.clockStyle}`;
+  const appearance = data.settings.appearance ?? defaultAppearance;
   const theme = useUIStore((state) => state.theme) ?? appearance.theme;
   const setTheme = useUIStore((state) => state.setTheme);
   return (
@@ -370,7 +301,7 @@ function TopBar({ data, resolvedTheme }: { data: BootstrapData; resolvedTheme: "
       <div className="topbar-meta">
         <span className="weather-inline"><CloudSun size={19} /><span>{data.settings.weatherLocation}</span><strong>24°C</strong><em>多云</em></span>
         <span className="topbar-divider" />
-        <span className={`time-inline ${clockClass}`} style={{ "--clock-color": appearance.clockColor } as CSSProperties}><Clock3 size={18} /><ClockDisplay time={time} appearance={appearance} /><span>{date}</span></span>
+        <ClockDateWidget appearance={appearance} timezone={data.settings.timezone} />
         <span className="topbar-divider" />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -393,161 +324,47 @@ function TopBar({ data, resolvedTheme }: { data: BootstrapData; resolvedTheme: "
   );
 }
 
-function HomePage({ data, isFetching, syncError, syncedAt }: { data: BootstrapData; isFetching: boolean; syncError: boolean; syncedAt: number }) {
-  const selectedCategory = useUIStore((state) => state.activeCategory);
-  const activeCategory = data.categories.some((category) => category.visible !== false && category.id === selectedCategory) ? selectedCategory : null;
-  const setActiveCategory = useUIStore((state) => state.setActiveCategory);
-  const [query, setQuery] = useState("");
+function HomePage({ data }: { data: BootstrapData }) {
+  const query = useUIStore((state) => state.searchQuery);
+  const setQuery = useUIStore((state) => state.setSearchQuery);
   const [engine, setEngine] = useState(() => resolveEngine(data.settings.defaultEngine));
-  const [showAll, setShowAll] = useState(false);
   const navigate = useNavigate();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (selectedCategory !== activeCategory) setActiveCategory(activeCategory);
-  }, [selectedCategory, activeCategory, setActiveCategory]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      } else if (event.key === "/" && document.activeElement !== searchInputRef.current) {
-        const target = event.target as HTMLElement | null;
-        if (target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA" && !target?.isContentEditable) {
-          event.preventDefault();
-          searchInputRef.current?.focus();
-          searchInputRef.current?.select();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-  const visibleLinks = useMemo(() => data.categories.filter((category) => category.visible !== false).flatMap((category) => category.links.filter((item) => item.visible !== false)), [data.categories]);
-  const browserConnectivity = useBrowserConnectivity(visibleLinks);
-  const linkTargets = useMemo(() => linkProbeTargets(visibleLinks), [visibleLinks]);
-  const serviceTargets = useMemo(() => serviceProbeTargets(data.services), [data.services]);
-  const linkProbeConnectivity = useLocalProbeConnectivity(linkTargets);
-  const serviceConnectivity = useLocalProbeConnectivity(serviceTargets);
-  const connectivity = Object.fromEntries(visibleLinks.map((link) => {
-    const probe = linkProbeConnectivity[link.id];
-    return [link.id, probe?.state === "reachable" || probe?.state === "unreachable" ? probe : browserConnectivity[link.id]];
-  }));
-
-  const visibleCategories = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return data.categories
-      .filter((category) => category.visible !== false && (activeCategory === null || category.id === activeCategory))
-      .map((category) => ({
-        ...category,
-        links: category.links.filter((item) => item.visible !== false && (!normalized || `${item.name} ${item.description}`.toLowerCase().includes(normalized))),
-      }))
-      .filter((category) => category.links.length > 0);
-  }, [activeCategory, data.categories, query]);
-
+  const visibleLinks = useMemo(() => directoryCategories(data.categories).flatMap((category) => category.links), [data.categories]);
+  const connectivity = useDeviceConnectivity(visibleLinks, data.services);
+  const visibleCategories = useMemo(() => directoryCategories(data.categories, query), [data.categories, query]);
+  useCategoryOutline(visibleCategories);
   const openSearch = () => {
-    const raw = query.trim();
-    if (!raw) return;
-    const bangMap: Record<string, string> = { "!bd": "百度", "!yt": "YouTube", "!st": "Steam" };
-    const parts = raw.split(/\s+/);
-    const bangEngine = bangMap[parts[0].toLowerCase()];
-    const activeEngine = bangEngine || engine;
-    const searchQuery = bangEngine ? parts.slice(1).join(" ") : raw;
-    if (!searchQuery) return;
-    const target = engineUrls[resolveEngine(activeEngine)].replace("QUERY", encodeURIComponent(searchQuery));
-    window.open(target, "_blank", "noopener,noreferrer");
+    if (query.trim()) window.open(buildSearchUrl(engine, query), "_blank", "noopener,noreferrer");
   };
-
   return (
     <motion.main className="home-layout route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
       <div className="home-main">
-        <div className="search-wrap">
-          <div className={`search-box ${query ? "has-value" : ""}`}>
-            <Search size={22} strokeWidth={1.7} />
-            <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) openSearch(); }} placeholder="搜索或输入网址 (⌘K)" aria-label="搜索或输入网址" />
-            <div className="search-actions">
-              <select value={engine} onChange={(event) => setEngine(event.target.value)} aria-label="搜索引擎">
-                {engineOptions.map((option) => <option key={option}>{option}</option>)}
-              </select>
-              <span className="search-shortcut"><Command size={13} /> K</span>
-            </div>
-          </div>
-          <div className="engine-hints">
-            <span>快捷搜索</span>
-            {engineOptions.map((option) => <button key={option} className={engine === option ? "active" : ""} onClick={() => setEngine(option)}>{option}</button>)}
-            <span className="hint-divider" />
-            <button className="bang-hint" onClick={() => setQuery("!bd ")}>!bd</button><button className="bang-hint" onClick={() => setQuery("!yt ")}>!yt</button><button className="bang-hint" onClick={() => setQuery("!st ")}>!st</button>
-          </div>
-        </div>
-
-        <div className={`home-content-header ${query ? "" : "compact"}`}>
-          <div>{query && <><span className="eyebrow">搜索结果 · {visibleCategories.reduce((count, item) => count + item.links.length, 0)} 个链接</span><h1>找到你要去的地方</h1></>}</div>
+        <SearchBar query={query} onChange={setQuery} engine={engine} onEngineChange={setEngine} onSearch={openSearch} />
+        <div className={`home-content-header ${query.trim() ? "" : "compact"}`}>
+          <div>{query.trim() && <><span className="eyebrow">搜索结果 · {visibleCategories.reduce((count, item) => count + item.links.length, 0)} 个链接</span><h1>找到你要去的地方</h1></>}</div>
           <div className="header-actions"><button className="quiet-button" onClick={() => navigate("/admin")}><SlidersHorizontal size={16} /> 管理内容</button></div>
         </div>
-
         <div className="directory-list">
-          {query && visibleCategories.length === 0 ? (
+          {query.trim() && visibleCategories.length === 0 ? (
             <div className="empty-search-state">
               <div className="empty-search-icon"><Search size={22} /></div>
               <h3>未找到与“{query}”相关的链接</h3>
-              <p>可以尝试更换搜索关键词，或直接点击下方按钮使用外部引擎搜索</p>
-              <div className="empty-search-actions">
-                <button className="quiet-button" onClick={() => setQuery("")}>清空输入</button>
-                <button className="primary-button" onClick={openSearch}>使用 {engine} 搜索</button>
-              </div>
+              <p>可以更换关键词，或使用外部引擎搜索</p>
+              <div className="empty-search-actions"><button className="quiet-button" onClick={() => setQuery("")}>清空输入</button><button className="primary-button" onClick={openSearch}>使用 {engine} 搜索</button></div>
             </div>
           ) : visibleCategories.length === 0 ? (
-            <div className="empty-search-state" role="status"><h3>暂无可显示的链接</h3><p>可以切换收藏夹，或在设置中添加链接。</p><button className="quiet-button" onClick={() => { setActiveCategory(null); navigate("/admin"); }}>管理内容</button></div>
-          ) : (
-            visibleCategories.slice(0, query || activeCategory !== null || showAll ? undefined : 3).map((category) => (
-              <CategorySection category={category} expanded={!!query.trim() || activeCategory !== null} connectivity={connectivity} key={category.id} onMore={() => setActiveCategory(category.id)} />
-            ))
-          )}
+            <div className="empty-search-state" role="status"><h3>暂无可显示的分类</h3><p>在设置中添加分类与链接。</p><button className="quiet-button" onClick={() => navigate("/admin")}>管理内容</button></div>
+          ) : visibleCategories.map((category) => <CategorySection category={category} connectivity={connectivity.links} key={category.id} />)}
         </div>
-
-        {!query && activeCategory === null && visibleCategories.length > 3 && <button className="show-more-button" onClick={() => setShowAll(!showAll)}>{showAll ? "收起分类" : "查看全部分类"}<ChevronDown size={16} className={showAll ? "rotated" : ""} /></button>}
-
         <div className="bottom-panels">
-          <StatusPanel services={data.services} compact localConnectivity={serviceConnectivity} />
+          <StatusPanel services={data.services} compact localConnectivity={connectivity.services} />
           <UpdatesPanel updates={data.updates} compact />
         </div>
         <NetworkPanel />
-        <div className="sync-banner"><div className="sync-icon"><Activity size={17} /></div><div><strong>{isFetching ? "正在同步" : syncError ? "同步失败，保留上次内容" : "已读取最新缓存"}</strong><span>页面可见时每 60 秒同步服务与订阅缓存。</span></div><time className="sync-time" dateTime={new Date(syncedAt).toISOString()}>上次同步 {new Date(syncedAt).toLocaleTimeString("zh-CN")}</time></div>
+        <div data-outline-end className="directory-end" aria-hidden="true" />
       </div>
-      <aside className="home-rail">
-        <StatusPanel services={data.services} localConnectivity={serviceConnectivity} />
-        <UpdatesPanel updates={data.updates} />
-      </aside>
+      <aside className="home-rail"><StatusPanel services={data.services} localConnectivity={connectivity.services} /><UpdatesPanel updates={data.updates} /></aside>
     </motion.main>
-  );
-}
-
-function CategorySection({ category, connectivity, onMore, expanded = false }: { category: Category; connectivity: Record<number, ConnectivityResult | undefined>; onMore: () => void; expanded?: boolean }) {
-  return (
-    <section className="category-section">
-      <div className="category-heading"><div className="category-title"><span className="category-icon"><ItemIcon icon={category.icon} iconKind={category.iconKind} iconUrl={category.iconUrl} size={21} /></span><div><h2>{category.name}</h2><p>{category.description}</p></div></div><button className="category-more" onClick={onMore} aria-label={`查看${category.name}全部链接`}><ChevronRight size={19} /></button></div>
-      <div className="link-grid">
-        {(expanded ? category.links : category.links.slice(0, 8)).map((item) => <LinkItemCard item={item} connectivity={connectivity[item.id]} key={item.id} />)}
-        {!expanded && category.links.length > 8 && <button className="link-card more-card" onClick={onMore}><span><MoreHorizontal size={20} /></span><div><strong>更多链接</strong><small>查看该分类全部内容</small></div></button>}
-      </div>
-    </section>
-  );
-}
-
-function LinkItemCard({ item, connectivity }: { item: LinkItem; connectivity?: ConnectivityResult }) {
-  const state = connectivity?.state ?? "unknown";
-  const metric = connectivity?.latencyMs != null ? `${connectivity.source === "browser" ? "HTTP " : ""}${connectivity.latencyMs} ms` : state === "checking" ? "…" : "—";
-  const method = connectivity?.source === "probe" ? "本机 TCP" : "浏览器 HTTP";
-  const status = state === "reachable" ? `可达，耗时 ${metric}` : state === "checking" ? "检测中" : state === "unknown" ? "无法确认" : "连接失败";
-  const label = `${method}：${status}${connectivity?.reason ? `（${connectivity.reason}）` : ""}${connectivity?.checkedAt ? `，检查于 ${new Date(connectivity.checkedAt).toLocaleTimeString("zh-CN")}` : ""}`;
-  return (
-    <a className="link-card" href={item.url} target="_blank" rel="noreferrer">
-      <span className="link-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={21} /></span>
-      <span className="link-copy"><strong>{item.name}</strong><small>{item.description}</small></span>
-      {item.connectivityEnabled !== false && <span className={`link-metric ${state}`} title={label} aria-label={label}><span className="connectivity-dot" />{metric}</span>}
-      <ArrowUpRight className="link-arrow" size={15} />
-    </a>
   );
 }
 
@@ -897,20 +714,29 @@ function SettingsPanel({ data }: { data: BootstrapData }) {
   const [defaultEngine, setDefaultEngine] = useState(data.settings.defaultEngine);
   const [weatherLocation, setWeatherLocation] = useState(data.settings.weatherLocation);
   const [timezone, setTimezone] = useState(data.settings.timezone);
-  const appearance = data.settings.appearance ?? { theme: "system", clockStyle: "plain", clock24Hour: true, clockSeconds: false, clockColor: "#2f6ff3", clockSpeed: 1 };
-  const [themeDefault, setThemeDefault] = useState<Theme>(appearance.theme);
-  const [clockStyle, setClockStyle] = useState<AppearanceSettings["clockStyle"]>(appearance.clockStyle);
-  const [clock24Hour, setClock24Hour] = useState(appearance.clock24Hour);
-  const [clockSeconds, setClockSeconds] = useState(appearance.clockSeconds);
-  const [clockColor, setClockColor] = useState(appearance.clockColor);
-  const [clockSpeed, setClockSpeed] = useState(String(appearance.clockSpeed || 1));
+  const [appearance, setAppearance] = useState(() => normalizeAppearance(data.settings.appearance));
   const [saveError, setSaveError] = useState("");
   const mutation = useMutation({
-    mutationFn: () => updateSettings({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, theme: themeDefault, clockStyle, clock24Hour, clockSeconds, clockColor, clockSpeed: Math.min(3, Math.max(1, Math.round(Number(clockSpeed) || 1))) }),
+    mutationFn: updateSettings,
     onSuccess: () => { setSaveError(""); queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); },
     onError: (error: Error) => setSaveError(error.message || "保存设置失败"),
   });
-  return <section className="settings-form"><div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div><button className="primary-button" onClick={() => mutation.mutate()} disabled={mutation.isPending}><Check size={16} /> {mutation.isPending ? "保存中" : "保存设置"}</button></div><div className="settings-grid"><label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label><label>默认搜索引擎<select value={defaultEngine} onChange={(event) => setDefaultEngine(event.target.value)}>{engineOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label><label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label><label>主题默认值<select value={themeDefault} onChange={(event) => setThemeDefault(event.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label>时钟样式<select value={clockStyle} onChange={(event) => setClockStyle(event.target.value as AppearanceSettings["clockStyle"])}>{clockStyles.map((style) => <option key={style} value={style}>{style === "plain" ? "标准" : style === "flip" ? "翻页" : style === "ticker" ? "滚动" : "柔和发光"}</option>)}</select></label><label className="checkbox-row"><input type="checkbox" checked={clock24Hour} onChange={(event) => setClock24Hour(event.target.checked)} /> 24 小时制</label><label className="checkbox-row"><input type="checkbox" checked={clockSeconds} onChange={(event) => setClockSeconds(event.target.checked)} /> 显示秒数</label><label>时钟颜色<input type="color" value={clockColor} onChange={(event) => setClockColor(event.target.value)} /></label><label>动画速度<input type="number" min="1" max="3" value={clockSpeed} onChange={(event) => setClockSpeed(event.target.value)} /></label></div>{saveError && <p className="settings-error">{saveError}</p>}<div className="settings-note"><CircleHelp size={17} /><span>主页主题菜单可选择跟随系统、浅色或深色；时钟效果只影响顶部显示；时区请填写 IANA 名称，例如 Asia/Shanghai。</span></div></section>;
+  return <section className="settings-form"><fieldset className="admin-fields" disabled={mutation.isPending}>
+    <div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div>
+      <button className="primary-button" onClick={() => mutation.mutate({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, ...appearance })} disabled={mutation.isPending}><Check size={16} />{mutation.isPending ? "保存中" : "保存设置"}</button></div>
+    <div className="settings-grid">
+      <label>站点名称<input value={brandName} onChange={(event) => setBrandName(event.target.value)} /></label>
+      <label>默认搜索引擎<SearchEngineSelect value={defaultEngine} onValueChange={setDefaultEngine} /></label>
+      <label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label>
+      <label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>
+      <label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label>
+      <label>主题默认值<select value={appearance.theme} onChange={(event) => setAppearance({ ...appearance, theme: event.target.value as Theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+    </div>
+    <ClockSettings appearance={appearance} onChange={setAppearance} timezone={timezone} />
+  </fieldset>
+    {saveError && <p className="settings-error" role="alert">{saveError}</p>}
+    <div className="settings-note"><CircleHelp size={17} /><span>时区使用 IANA 名称，例如 Asia/Shanghai；点击日期打开万年历。主题选择仍可在主页覆盖站点默认值。</span></div>
+  </section>;
 }
 
 export { App };
