@@ -10,6 +10,9 @@ import {
   RefreshCw, Rss, Search, Settings2, ShieldCheck, SlidersHorizontal, Sun, Trash2, Wifi, X,
 } from "lucide-react";
 import { ItemIcon, iconOptions } from "./components/icons/ItemIcon";
+import { FormControlsDisabled, ThemedSelect } from "./components/ui/ThemedSelect";
+import { formatConnectivity } from "./lib/connectivity";
+import type { LinkIconKind } from "./lib/icons";
 import { useMediaQuery } from "./hooks/use-media-query";
 import { UI_STORAGE_KEY, useUIStore, type Theme } from "./stores/ui-store";
 import { useSaveMutation } from "./hooks/use-save-mutation";
@@ -376,6 +379,7 @@ function StatusPanel({ services, compact = false, localConnectivity = {} }: { se
       <div className="status-list">
         {services.filter((service) => service.enabled !== false).slice(0, compact ? 4 : 5).map((service) => {
           const localResult = localConnectivity[service.id];
+          const localDisplay = formatConnectivity(localResult);
           const hasMeta = (service.latencyMs != null && service.checkType !== "none" && !compact) || (service.checkType && service.checkType !== "none" && !compact) || localResult;
           return (
             <div className="status-row" key={service.id}>
@@ -392,8 +396,8 @@ function StatusPanel({ services, compact = false, localConnectivity = {} }: { se
                   {localResult && (
                     <>
                       {service.latencyMs != null && !compact && <span className="status-meta-divider" />}
-                      <span className={`status-meta-item connectivity-label ${localResult.state}`} title="访问设备上的本机探针结果">
-                        {localResult.latencyMs != null ? `本机 ${localResult.latencyMs}ms` : localResult.state === "checking" ? "本机检测中" : localResult.state === "unreachable" ? "本机失败" : "本机未确认"}
+                      <span className={`status-meta-item connectivity-label ${localDisplay.state}`} title={localDisplay.title}>
+                        本机 {localDisplay.text}
                       </span>
                     </>
                   )}
@@ -537,7 +541,7 @@ function AdminPage({ data }: { data: BootstrapData }) {
   const [linkDescription, setLinkDescription] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkIcon, setLinkIcon] = useState("globe");
-  const [linkIconKind, setLinkIconKind] = useState<"builtin" | "url">("builtin");
+  const [linkIconKind, setLinkIconKind] = useState<LinkIconKind>("builtin");
   const [linkIconUrl, setLinkIconUrl] = useState("");
   const [linkConnectivity, setLinkConnectivity] = useState(true);
   const [linkCategory, setLinkCategory] = useState(data.categories[0]?.id ?? 0);
@@ -596,7 +600,7 @@ function AdminPage({ data }: { data: BootstrapData }) {
     {session.error && <p className="settings-error" role="alert">无法确认登录状态：{session.error.message}</p>}
     {session.data?.authenticated && <div className="admin-account-bar"><span><Check size={15} /> 当前会话有效，修改会直接写入 SQLite</span><button className="quiet-button" disabled={busy || logoutMutation.isPending} onClick={() => logoutMutation.mutate()}><LogOut size={15} /> 退出</button></div>}
     {session.data?.authenticated && (
-      <fieldset className="admin-fields" disabled={busy} aria-busy={busy}>
+      <FormControlsDisabled.Provider value={busy}><fieldset className="admin-fields" disabled={busy} aria-busy={busy}>
       <Tabs.Root value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
       <Tabs.List className="admin-tabs" aria-label="管理分区">
         {[
@@ -634,7 +638,7 @@ function AdminPage({ data }: { data: BootstrapData }) {
         <section className="admin-section">
           <div className="section-title"><div><span className="eyebrow">链接目录</span><h2>全部链接</h2></div><button className="primary-button" onClick={resetLink}><Plus size={16} /> 新增链接</button></div>
           <div className="admin-list">{data.categories.flatMap((category) => category.links.map((item) => ({ item, category }))).map(({ item, category }) => <div className="admin-list-row" key={item.id}>
-            <span className="admin-item-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} size={18} /></span>
+            <span className="admin-item-icon"><ItemIcon icon={item.icon} iconKind={item.iconKind} iconUrl={item.iconUrl} websiteUrl={item.url} size={18} /></span>
             <span className="admin-item-copy"><strong>{item.name}</strong><small>{category.name} · {item.url}</small></span>
             <button className="icon-button subtle" onClick={() => startLinkEdit(item)} title="编辑链接"><Edit3 size={16} /></button>
             <button className="icon-button subtle danger" onClick={() => linkDelete.mutate(item.id)} title="删除链接"><Trash2 size={16} /></button>
@@ -669,42 +673,51 @@ function AdminPage({ data }: { data: BootstrapData }) {
     {session.data?.authenticated && tab === "settings" && <SettingsPanel data={data} />}
       </Tabs.Content>
       </Tabs.Root>
-      </fieldset>
+      </fieldset></FormControlsDisabled.Provider>
     )}
   </motion.main>;
 }
 
-function IconFields({ icon, iconKind, iconUrl, setIcon, setIconKind, setIconUrl }: { icon: string; iconKind: "builtin" | "url"; iconUrl: string; setIcon: (value: string) => void; setIconKind: (value: "builtin" | "url") => void; setIconUrl: (value: string) => void }) {
-  return <div className="icon-fields"><label>图标来源<select value={iconKind} onChange={(event) => setIconKind(event.target.value as "builtin" | "url")}><option value="builtin">内置图标</option><option value="url">图片地址</option></select></label>{iconKind === "builtin" ? <label>内置图标<select value={icon} onChange={(event) => setIcon(event.target.value)}>{iconOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : <label>图片地址<input value={iconUrl} onChange={(event) => setIconUrl(event.target.value)} placeholder="https://..." inputMode="url" /></label>}<span className="icon-preview"><ItemIcon icon={icon} iconKind={iconKind} iconUrl={iconUrl} size={20} /></span></div>;
+function IconFields<T extends LinkIconKind>({ icon, iconKind, iconUrl, websiteUrl, setIcon, setIconKind, setIconUrl }: { icon: string; iconKind: T; iconUrl: string; websiteUrl?: string; setIcon: (value: string) => void; setIconKind: (value: T) => void; setIconUrl: (value: string) => void }) {
+  const [previewUrl, setPreviewUrl] = useState(websiteUrl);
+  useEffect(() => {
+    const timer = setTimeout(() => setPreviewUrl(websiteUrl), 300);
+    return () => clearTimeout(timer);
+  }, [websiteUrl]);
+  const sources = [{ value: "builtin", label: "内置图标" }, { value: "url", label: "图片地址" }, ...(websiteUrl !== undefined ? [{ value: "website", label: "网站图标" }] : [])];
+  return <div className="icon-fields">
+    <label>图标来源<ThemedSelect aria-label="图标来源" value={iconKind} onValueChange={(value) => setIconKind(value as T)} options={sources} /></label>
+    {iconKind === "builtin" && <label>内置图标<ThemedSelect aria-label="内置图标" value={icon} onValueChange={setIcon} options={iconOptions.map((value) => ({ value, label: value }))} /></label>}
+    {iconKind === "url" && <label>图片地址<input value={iconUrl} onChange={(event) => setIconUrl(event.target.value)} placeholder="https://..." inputMode="url" /></label>}
+    {iconKind === "website" && <p className="form-empty">自动获取网站图标；未找到时使用内置图标。自定义 Logo 可使用图片地址。</p>}
+    <span className="icon-preview" aria-label="图标预览"><ItemIcon icon={icon} iconKind={iconKind} iconUrl={iconUrl} websiteUrl={previewUrl === websiteUrl ? previewUrl : undefined} size={20} /></span>
+  </div>;
 }
 
 function CategoryForm({ editing, name, description, icon, iconKind, iconUrl, setName, setDescription, setIcon, setIconKind, setIconUrl, onSubmit, onCancel }: { editing: Category | null; name: string; description: string; icon: string; iconKind: "builtin" | "url"; iconUrl: string; setName: (value: string) => void; setDescription: (value: string) => void; setIcon: (value: string) => void; setIconKind: (value: "builtin" | "url") => void; setIconUrl: (value: string) => void; onSubmit: () => void; onCancel: () => void }) {
   return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑收藏夹" : "新建收藏夹"}</span><h2>{editing ? editing.name : "添加一个收藏夹"}</h2></div></div><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：设计资源" /></label><label>描述<input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="一句话说明这个收藏夹" /></label><IconFields icon={icon} iconKind={iconKind} iconUrl={iconUrl} setIcon={setIcon} setIconKind={setIconKind} setIconUrl={setIconUrl} /><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim()}><Check size={16} /> 保存收藏夹</button></div></section>;
 }
 
-function LinkForm({ editing, name, description, url, icon, iconKind, iconUrl, connectivityEnabled, categoryId, categories, setName, setDescription, setUrl, setIcon, setIconKind, setIconUrl, setConnectivityEnabled, setCategoryId, onSubmit, onCancel }: { editing: LinkItem | null; name: string; description: string; url: string; icon: string; iconKind: "builtin" | "url"; iconUrl: string; connectivityEnabled: boolean; categoryId: number; categories: Category[]; setName: (value: string) => void; setDescription: (value: string) => void; setUrl: (value: string) => void; setIcon: (value: string) => void; setIconKind: (value: "builtin" | "url") => void; setIconUrl: (value: string) => void; setConnectivityEnabled: (value: boolean) => void; setCategoryId: (value: number) => void; onSubmit: () => void; onCancel: () => void }) {
+function LinkForm({ editing, name, description, url, icon, iconKind, iconUrl, connectivityEnabled, categoryId, categories, setName, setDescription, setUrl, setIcon, setIconKind, setIconUrl, setConnectivityEnabled, setCategoryId, onSubmit, onCancel }: { editing: LinkItem | null; name: string; description: string; url: string; icon: string; iconKind: LinkIconKind; iconUrl: string; connectivityEnabled: boolean; categoryId: number; categories: Category[]; setName: (value: string) => void; setDescription: (value: string) => void; setUrl: (value: string) => void; setIcon: (value: string) => void; setIconKind: (value: LinkIconKind) => void; setIconUrl: (value: string) => void; setConnectivityEnabled: (value: boolean) => void; setCategoryId: (value: number) => void; onSubmit: () => void; onCancel: () => void }) {
   return <section className="editor-panel">
     <div className="section-title"><div><span className="eyebrow">{editing ? "编辑链接" : "新建链接"}</span><h2>{editing ? editing.name : "添加一个链接"}</h2></div></div>
     <label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：Notion" /></label>
     <label>描述<input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="简短的用途描述" /></label>
     <label>地址<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://" inputMode="url" /></label>
-    <label>所属分类<select value={categoryId} disabled={categories.length === 0} onChange={(event) => setCategoryId(Number(event.target.value))}>
-      {categories.length === 0 && <option value={0}>请先创建收藏夹</option>}
-      {categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}
-    </select></label>
+    <label>所属分类<ThemedSelect aria-label="所属分类" value={categories.length ? String(categoryId) : ""} disabled={!categories.length} placeholder="请先创建收藏夹" onValueChange={(value) => setCategoryId(Number(value))} options={categories.map((category) => ({ value: String(category.id), label: category.name }))} /></label>
     {categories.length === 0 && <p className="form-empty" role="status">尚无收藏夹，请先在分类分区创建。</p>}
-    <IconFields icon={icon} iconKind={iconKind} iconUrl={iconUrl} setIcon={setIcon} setIconKind={setIconKind} setIconUrl={setIconUrl} />
+    <IconFields icon={icon} iconKind={iconKind} iconUrl={iconUrl} websiteUrl={url} setIcon={setIcon} setIconKind={setIconKind} setIconUrl={setIconUrl} />
     <label className="checkbox-row"><input type="checkbox" checked={connectivityEnabled} onChange={(event) => setConnectivityEnabled(event.target.checked)} /> 在主页显示本机连通性</label>
     <div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim() || !url.trim() || !categories.some((category) => category.id === categoryId)}><Check size={16} /> 保存链接</button></div>
   </section>;
 }
 
 function ServiceForm({ editing, name, enabled, checkType, target, port, setName, setEnabled, setCheckType, setTarget, setPort, onSubmit, onCancel }: { editing: ServiceStatus | null; name: string; enabled: boolean; checkType: "none" | "http" | "tcp"; target: string; port: string; setName: (value: string) => void; setEnabled: (value: boolean) => void; setCheckType: (value: ServiceStatus["checkType"]) => void; setTarget: (value: string) => void; setPort: (value: string) => void; onSubmit: () => void; onCancel: () => void }) {
-  return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑服务" : "新建服务"}</span><h2>{editing ? editing.name : "添加关注服务"}</h2></div></div><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：GitHub" /></label><label>检查方式<select value={checkType} onChange={(event) => setCheckType(event.target.value as ServiceStatus["checkType"])}><option value="none">仅手动记录</option><option value="http">HTTP 健康检查</option><option value="tcp">TCP 建连检查</option></select></label>{checkType !== "none" && <label>{checkType === "http" ? "健康地址" : "主机名"}<input value={target} onChange={(event) => setTarget(event.target.value)} placeholder={checkType === "http" ? "https://status.example.com/health" : "example.com"} /></label>}{checkType === "tcp" && <label>端口<input value={port} onChange={(event) => setPort(event.target.value)} inputMode="numeric" /></label>}<label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 在主页关注此服务</label><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim()}><Check size={16} /> 保存服务</button></div></section>;
+  return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑服务" : "新建服务"}</span><h2>{editing ? editing.name : "添加关注服务"}</h2></div></div><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：GitHub" /></label><label>检查方式<ThemedSelect aria-label="检查方式" value={checkType} onValueChange={(value) => setCheckType(value as ServiceStatus["checkType"])} options={[{ value: "none", label: "仅手动记录" }, { value: "http", label: "HTTP 健康检查" }, { value: "tcp", label: "TCP 建连检查" }]} /></label>{checkType !== "none" && <label>{checkType === "http" ? "健康地址" : "主机名"}<input value={target} onChange={(event) => setTarget(event.target.value)} placeholder={checkType === "http" ? "https://status.example.com/health" : "example.com"} /></label>}{checkType === "tcp" && <label>端口<input value={port} onChange={(event) => setPort(event.target.value)} inputMode="numeric" /></label>}<label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 在主页关注此服务</label><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim()}><Check size={16} /> 保存服务</button></div></section>;
 }
 
 function SubscriptionForm({ editing, type, name, url, enabled, interval, setType, setName, setUrl, setEnabled, setInterval, onSubmit, onCancel }: { editing: Subscription | null; type: Subscription["type"]; name: string; url: string; enabled: boolean; interval: string; setType: (value: Subscription["type"]) => void; setName: (value: string) => void; setUrl: (value: string) => void; setEnabled: (value: boolean) => void; setInterval: (value: string) => void; onSubmit: () => void; onCancel: () => void }) {
-  return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑订阅" : "新建订阅"}</span><h2>{editing ? editing.name : "添加关注内容"}</h2></div></div><label>类型<select value={type} onChange={(event) => setType(event.target.value as Subscription["type"])}><option value="rss">RSS / Atom</option><option value="github">GitHub Releases</option><option value="youtube">YouTube 频道</option></select></label><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：少数派" /></label><label>{type === "github" ? "仓库（owner/repo）" : "Feed 地址"}<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={type === "github" ? "facebook/react" : "https://example.com/feed.xml"} inputMode="url" /></label><label>刷新间隔（秒）<input value={interval} onChange={(event) => setInterval(event.target.value)} inputMode="numeric" /></label><label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 在最近动态中显示</label><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim() || !url.trim()}><Check size={16} /> 保存订阅</button></div></section>;
+  return <section className="editor-panel"><div className="section-title"><div><span className="eyebrow">{editing ? "编辑订阅" : "新建订阅"}</span><h2>{editing ? editing.name : "添加关注内容"}</h2></div></div><label>类型<ThemedSelect aria-label="类型" value={type} onValueChange={(value) => setType(value as Subscription["type"])} options={[{ value: "rss", label: "RSS / Atom" }, { value: "github", label: "GitHub Releases" }, { value: "youtube", label: "YouTube 频道" }]} /></label><label>名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：少数派" /></label><label>{type === "github" ? "仓库（owner/repo）" : "Feed 地址"}<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={type === "github" ? "facebook/react" : "https://example.com/feed.xml"} inputMode="url" /></label><label>刷新间隔（秒）<input value={interval} onChange={(event) => setInterval(event.target.value)} inputMode="numeric" /></label><label className="checkbox-row"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 在最近动态中显示</label><div className="form-actions"><button className="quiet-button" onClick={onCancel}>取消</button><button className="primary-button" onClick={onSubmit} disabled={!name.trim() || !url.trim()}><Check size={16} /> 保存订阅</button></div></section>;
 }
 
 function SettingsPanel({ data }: { data: BootstrapData }) {
@@ -721,7 +734,7 @@ function SettingsPanel({ data }: { data: BootstrapData }) {
     onSuccess: () => { setSaveError(""); queryClient.invalidateQueries({ queryKey: ["bootstrap"] }); },
     onError: (error: Error) => setSaveError(error.message || "保存设置失败"),
   });
-  return <section className="settings-form"><fieldset className="admin-fields" disabled={mutation.isPending}>
+  return <FormControlsDisabled.Provider value={mutation.isPending}><section className="settings-form"><fieldset className="admin-fields" disabled={mutation.isPending}>
     <div className="section-title"><div><span className="eyebrow">站点偏好</span><h2>外观与默认值</h2></div>
       <button className="primary-button" onClick={() => mutation.mutate({ brandName, brandDescription, defaultEngine, weatherLocation, timezone, ...appearance })} disabled={mutation.isPending}><Check size={16} />{mutation.isPending ? "保存中" : "保存设置"}</button></div>
     <div className="settings-grid">
@@ -730,13 +743,13 @@ function SettingsPanel({ data }: { data: BootstrapData }) {
       <label>天气城市<input value={weatherLocation} onChange={(event) => setWeatherLocation(event.target.value)} /></label>
       <label>默认时区<input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>
       <label className="settings-wide">站点说明<input value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} placeholder="可留空" /></label>
-      <label>主题默认值<select value={appearance.theme} onChange={(event) => setAppearance({ ...appearance, theme: event.target.value as Theme })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+      <label>主题默认值<ThemedSelect aria-label="主题默认值" value={appearance.theme} onValueChange={(value) => setAppearance({ ...appearance, theme: value as Theme })} options={[{ value: "system", label: "跟随系统" }, { value: "light", label: "浅色" }, { value: "dark", label: "深色" }]} /></label>
     </div>
     <ClockSettings appearance={appearance} onChange={setAppearance} timezone={timezone} />
   </fieldset>
     {saveError && <p className="settings-error" role="alert">{saveError}</p>}
     <div className="settings-note"><CircleHelp size={17} /><span>时区使用 IANA 名称，例如 Asia/Shanghai；点击日期打开万年历。主题选择仍可在主页覆盖站点默认值。</span></div>
-  </section>;
+  </section></FormControlsDisabled.Provider>;
 }
 
 export { App };

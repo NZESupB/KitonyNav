@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { IconType } from "react-icons";
+import { getWebsiteIconCandidates, type LinkIconKind } from "../../lib/icons";
 import {
   Activity, BookOpen, Braces, BriefcaseBusiness, Clock3, Cloud, Code2, Coffee,
   Folder, Globe2, Image, Languages, Link2, MapPin, Music2, Newspaper, Palette,
@@ -66,21 +67,23 @@ export const iconOptions = [...Object.keys(uiIcons), ...Object.keys(brandIcons)]
 
 type ItemIconProps = {
   icon: string;
-  iconKind?: "builtin" | "url";
+  iconKind?: LinkIconKind;
   iconUrl?: string;
+  websiteUrl?: string;
   size?: number;
 };
 
-export function ItemIcon({ icon, iconKind = "builtin", iconUrl, size = 20 }: ItemIconProps) {
-  if (iconKind === "url" && iconUrl) return <CustomIcon key={iconUrl} icon={icon} iconUrl={iconUrl} size={size} />;
+export function ItemIcon({ icon, iconKind = "builtin", iconUrl, websiteUrl, size = 20 }: ItemIconProps) {
+  const candidates = iconKind === "website" ? getWebsiteIconCandidates(websiteUrl ?? "") : iconKind === "url" && iconUrl ? [iconUrl] : [];
+  if (candidates.length) return <CustomIcon key={`${iconKind}:${iconKind === "website" ? websiteUrl : iconUrl}:${JSON.stringify(candidates)}`} icon={icon} candidates={candidates} size={size} />;
   const BrandIcon = brandIcons[icon];
   if (BrandIcon) return <BrandIcon size={size} aria-hidden="true" />;
   const UiIcon = uiIcons[icon] ?? Link2;
   return <UiIcon size={size} strokeWidth={1.8} aria-hidden="true" />;
 }
 
-function CustomIcon({ icon, iconUrl, size }: { icon: string; iconUrl: string; size: number }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <ItemIcon icon={icon} size={size} />;
-  return <img className="custom-icon" src={iconUrl} alt="" width={size} height={size} loading="lazy" onError={() => setFailed(true)} />;
+function CustomIcon({ icon, candidates, size }: { icon: string; candidates: string[]; size: number }) {
+  const [index, setIndex] = useState(0);
+  if (index >= candidates.length) return <ItemIcon icon={icon} size={size} />;
+  return <img key={candidates[index]} className="custom-icon" src={candidates[index]} alt="" width={size} height={size} loading="lazy" referrerPolicy="no-referrer" onError={() => setIndex((previous) => previous + 1)} />;
 }

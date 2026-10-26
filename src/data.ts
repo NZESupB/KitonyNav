@@ -1,4 +1,5 @@
 import { defaultAppearance, normalizeAppearance, type AppearanceSettings } from "./lib/appearance";
+import type { LinkIconKind } from "./lib/icons";
 
 export { engineOptions, engineUrls, resolveEngine } from "./lib/search";
 export type LinkItem = {
@@ -7,7 +8,7 @@ export type LinkItem = {
   description: string;
   url: string;
   icon: string;
-  iconKind?: "builtin" | "url";
+  iconKind?: LinkIconKind;
   iconUrl?: string;
   categoryId: number;
   featured?: boolean;

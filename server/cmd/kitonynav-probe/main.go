@@ -18,6 +18,7 @@ type result struct {
 	Port      int    `json:"port"`
 	LatencyMS *int64 `json:"latencyMs,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"errorCode,omitempty"`
 }
 
 func main() {
@@ -44,12 +45,12 @@ func probeHandler(allowed map[string]bool) http.Handler {
 		host := strings.TrimSpace(r.URL.Query().Get("host"))
 		port, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("port")))
 		if host == "" || err != nil || port < 1 || port > 65535 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "host 或 port 不正确"})
+			writeJSON(w, http.StatusBadRequest, result{Error: "host 或 port 不正确", ErrorCode: "invalid-target"})
 			return
 		}
 		key := net.JoinHostPort(host, strconv.Itoa(port))
 		if !allowed[key] {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "目标不在探针 allowlist 中"})
+			writeJSON(w, http.StatusForbidden, result{Host: host, Port: port, Error: "目标不在探针 allowlist 中", ErrorCode: "not-allowed"})
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -57,7 +58,11 @@ func probeHandler(allowed map[string]bool) http.Handler {
 		started := time.Now()
 		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", key)
 		if err != nil {
-			writeJSON(w, http.StatusOK, result{OK: false, Host: host, Port: port, Error: err.Error()})
+			code := "tcp-failed"
+			if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				code = "tcp-timeout"
+			}
+			writeJSON(w, http.StatusOK, result{OK: false, Host: host, Port: port, Error: err.Error(), ErrorCode: code})
 			return
 		}
 		latency := time.Since(started).Milliseconds()

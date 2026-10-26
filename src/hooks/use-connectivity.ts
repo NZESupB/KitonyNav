@@ -76,10 +76,10 @@ function useConnectivityChecks(targets: CheckTarget[], healthUrl: string) {
           controllers.add(controller);
           let result: ConnectivityResult;
           try {
-            if (probeError) result = { state: "unknown", source, reason: probeError };
+            if (probeError) result = { state: "unknown", source, reasonCode: "probe-unavailable", reason: probeError };
             else result = await checkConnectivity(target.url, controller.signal);
           } catch (error) {
-            result = { state: "unknown", source, reason: error instanceof Error && error.name !== "TypeError" && error.name !== "AbortError"
+            result = { state: "unknown", source, reasonCode: "probe-unavailable", reason: error instanceof Error && error.name !== "TypeError" && error.name !== "AbortError"
               ? error.message : "本机探针不可访问或请求超时" };
           } finally {
             controllers.delete(controller);

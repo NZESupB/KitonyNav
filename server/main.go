@@ -1323,7 +1323,7 @@ func (s *appServer) handleDeleteCategory(w http.ResponseWriter, r *http.Request)
 
 func (s *appServer) handleCreateLink(w http.ResponseWriter, r *http.Request) {
 	var payload linkPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validIconSpec(payload.IconKind, payload.IconURL) {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validLinkIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "链接名称、地址或分类不正确")
 		return
 	}
@@ -1342,7 +1342,7 @@ func (s *appServer) handleUpdateLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload linkPayload
-	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validIconSpec(payload.IconKind, payload.IconURL) {
+	if err := decodeJSON(r, &payload); err != nil || strings.TrimSpace(payload.Name) == "" || !validHTTPURL(payload.URL) || payload.CategoryID <= 0 || !validLinkIconSpec(payload.IconKind, payload.IconURL) {
 		writeError(w, http.StatusBadRequest, "链接名称、地址或分类不正确")
 		return
 	}
@@ -1645,6 +1645,11 @@ func pathID(r *http.Request, key string) (int, error) { return strconv.Atoi(r.Pa
 func validHTTPURL(value string) bool {
 	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+// 网站图标从链接地址推导，仅链接允许此来源，分类继续使用独立图标配置。
+func validLinkIconSpec(kind, value string) bool {
+	return kind == "website" || validIconSpec(kind, value)
 }
 
 func validIconSpec(kind, value string) bool {
