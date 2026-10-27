@@ -1,3 +1,4 @@
+import { ProbeConnectionPanel } from "./components/navigation/ProbeConnectionPanel";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
@@ -345,7 +346,7 @@ function HomePage({ data }: { data: BootstrapData }) {
         <SearchBar query={query} onChange={setQuery} engine={engine} onEngineChange={setEngine} onSearch={openSearch} />
         <div className={`home-content-header ${query.trim() ? "" : "compact"}`}>
           <div>{query.trim() && <><span className="eyebrow">搜索结果 · {visibleCategories.reduce((count, item) => count + item.links.length, 0)} 个链接</span><h1>找到你要去的地方</h1></>}</div>
-          <div className="header-actions"><button className="quiet-button" onClick={() => navigate("/admin")}><SlidersHorizontal size={16} /> 管理内容</button></div>
+          <div className="header-actions"><ProbeConnectionPanel probe={connectivity.probe} /><button className="quiet-button" onClick={() => navigate("/admin")}><SlidersHorizontal size={16} /> 管理内容</button></div>
         </div>
         <div className="directory-list">
           {query.trim() && visibleCategories.length === 0 ? (

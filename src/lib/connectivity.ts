@@ -1,6 +1,7 @@
 import { withRequestTimeout } from "./network";
+import type { ProbeErrorCode } from "./probe";
 
-export type ConnectivityReason = "probe-unavailable" | "not-allowed" | "invalid-response" | "invalid-target" | "request-timeout" | "tcp-failed" | "tcp-timeout";
+export type ConnectivityReason = ProbeErrorCode | "not-allowed" | "invalid-target" | "tcp-failed" | "tcp-timeout";
 export type ConnectivityResult = {
   state: "reachable" | "unreachable" | "unknown" | "checking";
   latencyMs?: number;
@@ -12,7 +13,6 @@ export type ConnectivityResult = {
   refreshing?: boolean;
   stale?: boolean;
 };
-export type CheckTarget = { id: string; key: string; url: string };
 export const connectivityLifetime = 60_000;
 // 留出探针 5 秒拨号超时后传回失败结果的时间。
 export const probeRequestTimeout = 6500;
@@ -72,6 +72,7 @@ export function formatConnectivity(result?: ConnectivityResult) {
   const level = state === "reachable" && latency != null ? latency <= 100 ? "fast" : latency <= 300 ? "moderate" : "slow" : undefined;
   const value = latency != null ? `${latency} ms` : undefined;
   const unknownText = current?.reasonCode === "not-allowed" ? "未获探针允许" : current?.reasonCode === "invalid-response" ? "探针响应异常"
+    : current?.reasonCode === "invalid-config" ? "探针地址错误" : current?.reasonCode === "probe-http" ? "探针请求失败"
     : current?.reasonCode === "request-timeout" ? "探针请求超时" : current?.reasonCode === "probe-unavailable" ? "探针未连接" : "未确认";
   const text = value ? `${stale ? "上次 " : ""}${value}` : state === "checking" ? "检测中" : state === "unreachable" ? "连接失败" : unknownText;
   const status = stale ? "上次结果，已过期或本次检测无法确认" : state === "reachable" ? "TCP 连接成功" : text;

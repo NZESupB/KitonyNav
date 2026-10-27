@@ -669,3 +669,29 @@ a { color: inherit; }
   .topbar-meta .weather-inline { display: none; }
   .topbar-meta > .topbar-divider:first-of-type { display: none; }
 }
+
+.probe-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.probe-indicator.connected { background: var(--success); }
+.probe-indicator.error { background: var(--warning); }
+.probe-overlay { position: fixed; inset: 0; z-index: 80; background: rgb(0 0 0 / 40%); }
+.probe-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 81; width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.probe-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.probe-heading h2 { margin: 0; font-size: 20px; }
+.probe-dialog p, .probe-dialog li { color: var(--muted-strong); }
+.probe-settings { display: grid; gap: 14px; }
+.probe-facts { margin: 0; }
+.probe-facts > div { display: grid; grid-template-columns: 75px minmax(0, 1fr); gap: 12px; padding: 4px 0; }
+.probe-facts dt { color: var(--muted); }
+.probe-facts dd { margin: 0; }
+.probe-address { display: grid; gap: 7px; }
+.probe-address input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); color: var(--text); font-size: 16px; }
+.probe-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.probe-dialog button:disabled { opacity: .5; cursor: wait; }
+.probe-dialog pre { margin: 10px 0; padding: 12px; border-radius: 9px; background: var(--surface-soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; user-select: text; }
+.probe-dialog details { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.probe-dialog summary { cursor: pointer; }
+.probe-dialog .probe-error, .probe-dialog .probe-error p { color: var(--danger); }
+.probe-instructions h3 { margin: 12px 0 6px; font-size: 14px; }
+.probe-instructions ol { padding-left: 20px; }
+.home-content-header .header-actions { flex-wrap: wrap; }
+@media (max-width: 420px) { .probe-dialog { padding: 16px; } }
