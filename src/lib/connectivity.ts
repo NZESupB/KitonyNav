@@ -1,11 +1,12 @@
 import { withRequestTimeout } from "./network";
 import type { ProbeErrorCode } from "./probe";
 
-export type ConnectivityReason = ProbeErrorCode | "not-allowed" | "invalid-target" | "tcp-failed" | "tcp-timeout";
+export type ConnectivitySource = "probe" | "browser";
+export type ConnectivityReason = ProbeErrorCode | "not-allowed" | "invalid-target" | "tcp-failed" | "tcp-timeout" | "browser-restricted";
 export type ConnectivityResult = {
   state: "reachable" | "unreachable" | "unknown" | "checking";
   latencyMs?: number;
-  source: "probe";
+  source: ConnectivitySource;
   reason?: string;
   reasonCode?: ConnectivityReason;
   checkedAt?: number;
@@ -69,14 +70,25 @@ export function formatConnectivity(result?: ConnectivityResult) {
   const stale = current?.stale && validLatency(current.latencyMs);
   const state = stale ? "stale" : current?.state ?? "unknown";
   const latency = validLatency(current?.latencyMs) && (state === "reachable" || state === "stale") ? current.latencyMs : undefined;
-  const level = state === "reachable" && latency != null ? latency <= 100 ? "fast" : latency <= 300 ? "moderate" : "slow" : undefined;
-  const value = latency != null ? `${latency} ms` : undefined;
+  const isBrowser = current?.source === "browser";
+
+  // Web 探测延迟包含 TLS 与 HTTP 握手，阈值自适应放宽
+  const level = state === "reachable" && latency != null
+    ? isBrowser
+      ? latency <= 180 ? "fast" : latency <= 400 ? "moderate" : "slow"
+      : latency <= 100 ? "fast" : latency <= 300 ? "moderate" : "slow"
+    : undefined;
+
+  const prefix = isBrowser ? "Web " : "";
+  const value = latency != null ? `${prefix}${latency} ms` : undefined;
   const unknownText = current?.reasonCode === "not-allowed" ? "未获探针允许" : current?.reasonCode === "invalid-response" ? "探针响应异常"
     : current?.reasonCode === "invalid-config" ? "探针地址错误" : current?.reasonCode === "probe-http" ? "探针请求失败"
-    : current?.reasonCode === "request-timeout" ? "探针请求超时" : current?.reasonCode === "probe-unavailable" ? "探针未连接" : "未确认";
+    : current?.reasonCode === "request-timeout" ? "探针请求超时" : current?.reasonCode === "probe-unavailable" ? "探针未连接"
+    : current?.reasonCode === "browser-restricted" ? "浏览器受限" : "未确认";
   const text = value ? `${stale ? "上次 " : ""}${value}` : state === "checking" ? "检测中" : state === "unreachable" ? "连接失败" : unknownText;
-  const status = stale ? "上次结果，已过期或本次检测无法确认" : state === "reachable" ? "TCP 连接成功" : text;
-  const title = ["本机 TCP 拨号（含 DNS）", status, value, current?.reason, current?.refreshing ? "正在刷新" : "",
+  const status = stale ? "上次结果，已过期或本次检测无法确认" : state === "reachable" ? (isBrowser ? "HTTP 访问可达" : "TCP 连接成功") : text;
+  const sourceLabel = isBrowser ? "纯前端浏览器实测访问延迟（免安装探针）" : "本机 TCP 拨号（含 DNS）";
+  const title = [sourceLabel, status, value, current?.reason, current?.refreshing ? "正在刷新" : "",
     current?.checkedAt != null ? `测量于 ${new Date(current.checkedAt).toLocaleTimeString("zh-CN")}` : ""].filter(Boolean).join("；");
   return { state, level, text, title };
 }
