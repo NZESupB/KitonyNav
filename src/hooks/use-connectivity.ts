@@ -23,34 +23,60 @@ export function serviceProbeTargets(services: ServiceStatus[]): ProbeTarget[] {
     ? [{ id: service.id, host: service.target, port: service.port }] : []);
 }
 
+type PingCandidate = {
+  key: string;
+  id: number;
+  type: "link" | "service";
+  url?: string;
+  isCustomTcp?: boolean;
+};
+
 export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]) {
   const [settings, setSettings] = useState(loadProbeAddress);
   const addressRef = useRef(settings.address);
   const [connection] = useState<ProbeConnection>({ address: settings.address, state: "idle" });
-  const [linkResults, setLinkResults] = useState<Record<number, ConnectivityResult>>({});
+  const [results, setResults] = useState<Record<string, ConnectivityResult>>({});
 
-  const validLinks = useMemo(
-    () => links.filter((link) => link.visible !== false && link.connectivityEnabled !== false),
-    [links]
+  const candidates = useMemo<PingCandidate[]>(() => {
+    const linkItems: PingCandidate[] = links
+      .filter((link) => link.visible !== false && link.connectivityEnabled !== false)
+      .map((link) => ({
+        key: `link:${link.id}`,
+        id: link.id,
+        type: "link" as const,
+        url: link.url,
+      }));
+
+    const serviceItems: PingCandidate[] = services
+      .filter((service) => service.enabled !== false)
+      .map((service) => {
+        if (service.checkType === "http" && service.target && /^https?:\/\//i.test(service.target)) {
+          return { key: `service:${service.id}`, id: service.id, type: "service" as const, url: service.target };
+        }
+        return { key: `service:${service.id}`, id: service.id, type: "service" as const, isCustomTcp: true };
+      });
+
+    return [...linkItems, ...serviceItems];
+  }, [links, services]);
+
+  const signature = useMemo(
+    () => candidates.map((c) => `${c.key}:${c.url || "tcp"}`).join(","),
+    [candidates]
   );
-  const linksSig = JSON.stringify(validLinks.map((l) => ({ id: l.id, url: l.url })));
 
-  // 纯前端并发探测（池大小 4，监听 visibilitychange，生命周期 60s）
   useEffect(() => {
-    const candidates = JSON.parse(linksSig) as Array<{ id: number; url: string }>;
     if (candidates.length === 0) return;
 
     let disposed = false;
     let generation = 0;
     const controllers = new Set<AbortController>();
-    const timers = new Set<ReturnType<typeof setTimeout>>();
+    let loopTimer: ReturnType<typeof setTimeout> | undefined;
 
     const stop = () => {
       generation++;
       controllers.forEach((c) => c.abort());
       controllers.clear();
-      timers.forEach(clearTimeout);
-      timers.clear();
+      if (loopTimer) clearTimeout(loopTimer);
     };
 
     const run = async () => {
@@ -59,13 +85,13 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       const current = generation;
       const started = Date.now();
 
-      // 初始化或标记刷新
-      setLinkResults((prev) =>
+      // 批量初始化占位状态
+      setResults((prev) =>
         Object.fromEntries(
           candidates.map((c) => [
-            c.id,
-            prev[c.id]
-              ? { ...expireConnectivity(prev[c.id]), refreshing: true }
+            c.key,
+            prev[c.key]
+              ? { ...expireConnectivity(prev[c.key]), refreshing: true }
               : { state: "checking", source: "browser", refreshing: true },
           ])
         )
@@ -79,40 +105,41 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
           controllers.add(controller);
 
           let res: ConnectivityResult;
-          try {
-            const result = await browserPing(item.url, 3500, controller.signal);
-            if (result.reachable) {
-              res = {
-                state: "reachable",
-                source: "browser",
-                latencyMs: result.latencyMs,
-              };
-            } else {
-              res = {
-                state: result.error?.includes("限制") ? "unknown" : "unreachable",
-                source: "browser",
-                reason: result.error || "请求未连通",
-                reasonCode: result.error?.includes("限制") ? "browser-restricted" : undefined,
-              };
+          if (item.isCustomTcp || !item.url) {
+            res = {
+              state: "unknown",
+              source: "browser",
+              reason: "纯浏览器模式无法探测非 HTTP 原始 TCP 端口",
+            };
+          } else {
+            try {
+              const pingRes = await browserPing(item.url, 3500, controller.signal);
+              if (pingRes.reachable) {
+                res = {
+                  state: "reachable",
+                  source: "browser",
+                  latencyMs: pingRes.latencyMs,
+                };
+              } else {
+                res = {
+                  state: pingRes.error?.includes("限制") ? "unknown" : "unreachable",
+                  source: "browser",
+                  reason: pingRes.error || "请求未连通",
+                  reasonCode: pingRes.error?.includes("限制") ? "browser-restricted" : undefined,
+                };
+              }
+            } catch {
+              res = { state: "unknown", source: "browser", reason: "探测异常终止" };
+            } finally {
+              controllers.delete(controller);
             }
-          } catch {
-            res = { state: "unknown", source: "browser", reason: "探测异常终止" };
-          } finally {
-            controllers.delete(controller);
           }
 
           if (disposed || current !== generation) return;
-          setLinkResults((prev) => ({
+          setResults((prev) => ({
             ...prev,
-            [item.id]: completeConnectivity(prev[item.id], res),
+            [item.key]: completeConnectivity(prev[item.key], res),
           }));
-
-          const expireTimer = setTimeout(() => {
-            setLinkResults((prev) =>
-              prev[item.id] ? { ...prev, [item.id]: expireConnectivity(prev[item.id]) } : prev
-            );
-          }, connectivityLifetime);
-          timers.add(expireTimer);
         }
       };
 
@@ -120,8 +147,10 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       await Promise.all(Array.from({ length: concurrency }, worker));
 
       if (!disposed && current === generation) {
-        const nextTimer = setTimeout(() => void run(), Math.max(0, connectivityLifetime - (Date.now() - started)));
-        timers.add(nextTimer);
+        loopTimer = setTimeout(
+          () => void run(),
+          Math.max(0, connectivityLifetime - (Date.now() - started))
+        );
       }
     };
 
@@ -141,7 +170,7 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [linksSig]);
+  }, [signature, candidates]);
 
   const connect = (value = addressRef.current) => {
     let address = value.trim();
@@ -158,8 +187,8 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
   const requiredTargets = [...new Set(serviceProbeTargets(services).map((target) => probeTargetKey(target.host, target.port)))].sort();
 
   return {
-    links: linkResults,
-    services: {},
+    links: Object.fromEntries(links.map((link) => [link.id, results[`link:${link.id}`] ? expireConnectivity(results[`link:${link.id}`]) : { state: "checking" as const, source: "browser" as const }])),
+    services: Object.fromEntries(services.map((service) => [service.id, results[`service:${service.id}`] ? expireConnectivity(results[`service:${service.id}`]) : { state: "checking" as const, source: "browser" as const }])),
     probe: {
       connection: currentConnection,
       storageWarning: settings.storageWarning,

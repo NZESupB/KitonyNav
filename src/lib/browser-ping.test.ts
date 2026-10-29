@@ -21,15 +21,24 @@ describe("pure frontend browser ping", () => {
     expect(result.protocol).toBe("fetch");
   });
 
-  it("handles fetch failure gracefully", async () => {
+  it("handles fetch failure gracefully by falling back to Image", async () => {
     const mockFetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", mockFetch);
 
-    // Mock Image
+    let srcCleared = false;
     const mockImage = class {
       onload: (() => void) | null = null;
       onerror: (() => void) | null = null;
-      set src(_val: string) {
+      private _src = "";
+      get src() {
+        return this._src;
+      }
+      set src(val: string) {
+        this._src = val;
+        if (val === "") {
+          srcCleared = true;
+          return;
+        }
         setTimeout(() => {
           if (this.onload) this.onload();
         }, 15);
@@ -41,6 +50,25 @@ describe("pure frontend browser ping", () => {
     expect(result.reachable).toBe(true);
     expect(result.protocol).toBe("image");
     expect(result.latencyMs).toBeGreaterThanOrEqual(1);
+    expect(srcCleared).toBe(true);
+  });
+
+  it("detects mixed content when page is https and target is http", async () => {
+    // Mock window.location
+    vi.stubGlobal("window", {
+      location: { protocol: "https:" },
+    });
+    const result = await browserPing("http://insecure.example.com/test", 1000);
+    expect(result.reachable).toBe(false);
+    expect(result.error).toContain("HTTPS 页面无法探测 HTTP 目标");
+  });
+
+  it("handles AbortSignal abort immediately", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const result = await browserPing("https://example.com/test", 2000, ctrl.signal);
+    expect(result.reachable).toBe(false);
+    expect(result.error).toContain("已取消");
   });
 
   it("formats browser connectivity badge with Web prefix and relaxed thresholds", () => {
@@ -61,5 +89,13 @@ describe("pure frontend browser ping", () => {
     };
     const modFormatted = formatConnectivity(moderateRes);
     expect(modFormatted.level).toBe("moderate");
+
+    const slowRes: ConnectivityResult = {
+      state: "reachable",
+      latencyMs: 650,
+      source: "browser",
+    };
+    const slowFormatted = formatConnectivity(slowRes);
+    expect(slowFormatted.level).toBe("slow");
   });
 });

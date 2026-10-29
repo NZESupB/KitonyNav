@@ -8,7 +8,7 @@ export type BrowserPingResult = {
 export async function browserPing(
   targetUrl: string,
   timeoutMs = 3500,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<BrowserPingResult> {
   let parsedUrl: URL;
   try {
@@ -71,10 +71,18 @@ export async function browserPing(
     return new Promise((resolve) => {
       const img = new Image();
       let settled = false;
+
+      const cleanup = () => {
+        img.onload = null;
+        img.onerror = null;
+        img.src = "";
+        if (signal) signal.removeEventListener("abort", abortHandler);
+      };
+
       const imgTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        img.src = "";
+        cleanup();
         resolve({ reachable: false, error: "回退图片探测超时", protocol: "image" });
       }, timeoutMs);
 
@@ -82,6 +90,7 @@ export async function browserPing(
         if (settled) return;
         settled = true;
         clearTimeout(imgTimer);
+        cleanup();
         const latencyMs = Math.max(1, Math.round(performance.now() - start));
         resolve({
           reachable,
@@ -90,18 +99,18 @@ export async function browserPing(
         });
       };
 
-      // 无论成功加载还是 404/403 触发 onerror，均证明与服务器建立了网络连接并收到 HTTP 响应
-      img.onload = () => finish(true);
-      img.onerror = () => finish(true);
-
       const abortHandler = () => {
         if (!settled) {
           settled = true;
           clearTimeout(imgTimer);
-          img.src = "";
+          cleanup();
           resolve({ reachable: false, error: "探测已取消", protocol: "image" });
         }
       };
+
+      // 无论成功加载还是 404/403 触发 onerror，均证明与服务器建立了网络连接并收到 HTTP 响应
+      img.onload = () => finish(true);
+      img.onerror = () => finish(true);
 
       if (signal) {
         signal.addEventListener("abort", abortHandler, { once: true });
