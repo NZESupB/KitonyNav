@@ -1,9 +1,8 @@
-import { ProbeConnectionPanel } from "./components/navigation/ProbeConnectionPanel";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { Dialog, DropdownMenu, Popover, Tabs } from "radix-ui";
-import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { NavLink, Route, Routes } from "react-router-dom";
 import {
   Activity, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleAlert, CircleHelp,
   CloudSun, Edit3, Globe2, House, LayoutGrid, Link2, LogIn, LogOut,
@@ -181,7 +180,6 @@ const labelAnim = (collapsed: boolean) => ({
 function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boolean }) {
   const collapsed = useUIStore((state) => state.collapsed);
   const setCollapsed = useUIStore((state) => state.setCollapsed);
-  const setMobileMenuOpen = useUIStore((state) => state.setMobileMenuOpen);
   const reducedMotion = !!useReducedMotion();
   return (
     <div className="sidebar-inner">
@@ -223,7 +221,6 @@ function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boole
             style={{ overflow: "hidden" }}
           >
             <span>分类大纲</span>
-            <NavLink to="/admin" className="icon-button subtle" title="添加收藏夹" aria-label="添加收藏夹" onClick={() => setMobileMenuOpen(false)}><Plus size={17} /></NavLink>
           </motion.div>
           <CategoryOutline categories={data.categories} collapsed={collapsed} />
           <div className="sidebar-spacer" />
@@ -332,7 +329,6 @@ function HomePage({ data }: { data: BootstrapData }) {
   const query = useUIStore((state) => state.searchQuery);
   const setQuery = useUIStore((state) => state.setSearchQuery);
   const [engine, setEngine] = useState(() => resolveEngine(data.settings.defaultEngine));
-  const navigate = useNavigate();
   const visibleLinks = useMemo(() => directoryCategories(data.categories).flatMap((category) => category.links), [data.categories]);
   const connectivity = useDeviceConnectivity(visibleLinks, data.services);
   const visibleCategories = useMemo(() => directoryCategories(data.categories, query), [data.categories, query]);
@@ -344,10 +340,11 @@ function HomePage({ data }: { data: BootstrapData }) {
     <motion.main className="home-layout route-page-container" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, ease: "easeOut" }}>
       <div className="home-main">
         <SearchBar query={query} onChange={setQuery} engine={engine} onEngineChange={setEngine} onSearch={openSearch} />
-        <div className={`home-content-header ${query.trim() ? "" : "compact"}`}>
-          <div>{query.trim() && <><span className="eyebrow">搜索结果 · {visibleCategories.reduce((count, item) => count + item.links.length, 0)} 个链接</span><h1>找到你要去的地方</h1></>}</div>
-          <div className="header-actions"><ProbeConnectionPanel probe={connectivity.probe} /><button className="quiet-button" onClick={() => navigate("/admin")}><SlidersHorizontal size={16} /> 管理内容</button></div>
-        </div>
+        {query.trim() ? (
+          <div className="home-content-header">
+            <div><span className="eyebrow">搜索结果 · {visibleCategories.reduce((count, item) => count + item.links.length, 0)} 个链接</span><h1>找到你要去的地方</h1></div>
+          </div>
+        ) : null}
         <div className="directory-list">
           {query.trim() && visibleCategories.length === 0 ? (
             <div className="empty-search-state">
@@ -357,7 +354,7 @@ function HomePage({ data }: { data: BootstrapData }) {
               <div className="empty-search-actions"><button className="quiet-button" onClick={() => setQuery("")}>清空输入</button><button className="primary-button" onClick={openSearch}>使用 {engine} 搜索</button></div>
             </div>
           ) : visibleCategories.length === 0 ? (
-            <div className="empty-search-state" role="status"><h3>暂无可显示的分类</h3><p>在设置中添加分类与链接。</p><button className="quiet-button" onClick={() => navigate("/admin")}>管理内容</button></div>
+            <div className="empty-search-state" role="status"><h3>暂无可显示的分类</h3><p>在设置中添加分类与链接。</p></div>
           ) : visibleCategories.map((category) => <CategorySection category={category} connectivity={connectivity.links} key={category.id} />)}
         </div>
         <div className="bottom-panels">

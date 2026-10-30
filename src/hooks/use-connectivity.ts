@@ -1,27 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LinkItem, ServiceStatus } from "../data";
 import { completeConnectivity, connectivityLifetime, expireConnectivity, type ConnectivityResult } from "../lib/connectivity";
 import { browserPing } from "../lib/browser-ping";
-import { defaultProbeUrl, loadProbeAddress, parseProbeUrl, probeTargetKey, saveProbeAddress, type ProbeConnection } from "../lib/probe";
 export type { ConnectivityResult } from "../lib/connectivity";
-
-export type ProbeTarget = { id: number; host: string; port: number };
-
-export function linkProbeTargets(links: LinkItem[]): ProbeTarget[] {
-  return links.flatMap((link) => {
-    if (link.visible === false || link.connectivityEnabled === false) return [];
-    try {
-      const url = new URL(link.url);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return [];
-      return [{ id: link.id, host: url.hostname.replace(/^\[|\]$/g, ""), port: Number(url.port) || (url.protocol === "https:" ? 443 : 80) }];
-    } catch { return []; }
-  });
-}
-
-export function serviceProbeTargets(services: ServiceStatus[]): ProbeTarget[] {
-  return services.flatMap((service) => service.enabled !== false && service.checkType === "tcp" && service.target && service.port
-    ? [{ id: service.id, host: service.target, port: service.port }] : []);
-}
 
 type PingCandidate = {
   key: string;
@@ -32,9 +13,6 @@ type PingCandidate = {
 };
 
 export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]) {
-  const [settings, setSettings] = useState(loadProbeAddress);
-  const addressRef = useRef(settings.address);
-  const [connection] = useState<ProbeConnection>({ address: settings.address, state: "idle" });
   const [results, setResults] = useState<Record<string, ConnectivityResult>>({});
 
   const candidates = useMemo<PingCandidate[]>(() => {
@@ -172,32 +150,8 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
     };
   }, [signature, candidates]);
 
-  const connect = (value = addressRef.current) => {
-    let address = value.trim();
-    let storageWarning = settings.storageWarning;
-    try {
-      address = parseProbeUrl(address);
-      storageWarning = saveProbeAddress(address);
-    } catch { /* ignore */ }
-    addressRef.current = address;
-    setSettings({ address, storageWarning });
-  };
-
-  const currentConnection: ProbeConnection = connection.address === settings.address ? connection : { address: settings.address, state: "idle" };
-  const requiredTargets = [...new Set(serviceProbeTargets(services).map((target) => probeTargetKey(target.host, target.port)))].sort();
-
   return {
     links: Object.fromEntries(links.map((link) => [link.id, results[`link:${link.id}`] ? expireConnectivity(results[`link:${link.id}`]) : { state: "checking" as const, source: "browser" as const }])),
     services: Object.fromEntries(services.map((service) => [service.id, results[`service:${service.id}`] ? expireConnectivity(results[`service:${service.id}`]) : { state: "checking" as const, source: "browser" as const }])),
-    probe: {
-      connection: currentConnection,
-      storageWarning: settings.storageWarning,
-      requiredTargets,
-      missingTargets: undefined as string[] | undefined,
-      connect,
-      reset: () => connect(defaultProbeUrl),
-    },
   };
 }
-
-export type DeviceProbe = ReturnType<typeof useDeviceConnectivity>["probe"];

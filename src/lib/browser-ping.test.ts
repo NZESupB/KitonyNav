@@ -71,16 +71,16 @@ describe("pure frontend browser ping", () => {
     expect(result.error).toContain("已取消");
   });
 
-  it("formats browser connectivity badge with Web prefix and relaxed thresholds", () => {
+  it("formats browser connectivity badge with concise format and relaxed thresholds", () => {
     const res: ConnectivityResult = {
       state: "reachable",
       latencyMs: 120,
       source: "browser",
     };
     const formatted = formatConnectivity(res);
-    expect(formatted.text).toBe("Web 120 ms");
+    expect(formatted.text).toBe("120 ms");
     expect(formatted.level).toBe("fast");
-    expect(formatted.title).toContain("纯前端浏览器实测访问延迟（免安装探针）");
+    expect(formatted.title).toContain("浏览器实测访问延迟");
 
     const moderateRes: ConnectivityResult = {
       state: "reachable",

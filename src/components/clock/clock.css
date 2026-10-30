@@ -14,7 +14,52 @@
 .clock-hand.minute { height: 11px; }
 .clock-hand.second { height: 12px; width: 1px; background: var(--clock-color); }
 .clock-analog .clock-mark { display: none; }
-.calendar-popover { z-index: 50; width: min(354px, calc(100vw - 16px)); max-height: var(--radix-popover-content-available-height); overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow); font-size: 12px; }
+@keyframes calendarPopoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes calendarPopoverOut {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+.calendar-popover {
+  z-index: 50;
+  width: min(354px, calc(100vw - 16px));
+  max-height: var(--radix-popover-content-available-height);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 2px 10px rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  transform-origin: var(--radix-popover-content-transform-origin);
+  transition: height 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.calendar-popover[data-state="open"] {
+  animation: calendarPopoverIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.calendar-popover[data-state="closed"] {
+  animation: calendarPopoverOut 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 9px; }
 .calendar-month-selects { display: flex; gap: 6px; min-width: 0; }
 .calendar-month-selects .themed-select-trigger { background: var(--surface-soft); border-radius: 8px; min-height: 34px; padding: 0 7px; max-width: 112px; width: auto; }
@@ -49,4 +94,310 @@
   .topbar .time-inline { gap: 4px; }
   .calendar-popover { padding: 10px; }
   .clock-preview .clock-date-widget { flex-wrap: wrap; }
+}
+
+/* 可点击时间触发器 */
+.clock-time-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: inherit;
+  white-space: nowrap;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.clock-time-trigger:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+.clock-time-trigger:active {
+  transform: translateY(0);
+}
+
+/* 世界时钟模态浮层动效 */
+@keyframes worldClockOverlayIn {
+  from { opacity: 0; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+}
+@keyframes worldClockOverlayOut {
+  from { opacity: 1; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  to { opacity: 0; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); }
+}
+@keyframes worldClockDialogIn {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.95); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes worldClockDialogOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+}
+
+.world-clock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 7, 13, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.world-clock-overlay[data-state="open"] {
+  animation: worldClockOverlayIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.world-clock-overlay[data-state="closed"] {
+  animation: worldClockOverlayOut 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.world-clock-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 91;
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+}
+.world-clock-dialog[data-state="open"] {
+  animation: worldClockDialogIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.world-clock-dialog[data-state="closed"] {
+  animation: worldClockDialogOut 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.world-clock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.world-clock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.world-clock-heading {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+/* 世界时钟卡片网格 */
+.world-clock-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.world-clock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-soft);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.world-clock-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--card-hover-shadow);
+}
+.world-clock-card.night {
+  background: color-mix(in srgb, var(--surface-soft) 85%, #080d1a);
+}
+
+.world-clock-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.world-clock-city strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+.world-clock-city small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.world-clock-daynight {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 550;
+}
+.world-clock-daynight.is-day {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #d97706;
+}
+.world-clock-daynight.is-night {
+  background: color-mix(in srgb, #6366f1 16%, transparent);
+  color: #6366f1;
+}
+
+/* 拟物指针表盘 */
+.analog-dial-wrapper {
+  margin: 6px 0 14px;
+}
+.analog-dial {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--card-border) 80%, white), color-mix(in srgb, var(--card-border) 60%, transparent));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12), inset 0 2px 4px rgba(255, 255, 255, 0.15);
+  padding: 4px;
+  box-sizing: border-box;
+}
+.analog-dial-face {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--surface-solid) 60%, var(--surface-soft) 100%);
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+
+/* 刻度线 */
+.analog-mark {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 1.5px;
+  height: 6px;
+  margin-left: -0.75px;
+  background: var(--muted);
+  transform-origin: 50% 48px;
+  border-radius: 1px;
+}
+.analog-mark.major {
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  background: var(--text);
+}
+
+/* 指针 */
+.analog-hand {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  transform-origin: bottom center;
+  border-radius: 2px;
+}
+.analog-hand-hour {
+  width: 3.5px;
+  height: 28px;
+  margin-left: -1.75px;
+  background: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  z-index: 2;
+}
+.analog-hand-minute {
+  width: 2.5px;
+  height: 40px;
+  margin-left: -1.25px;
+  background: color-mix(in srgb, var(--text) 88%, transparent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  z-index: 3;
+}
+.analog-hand-second {
+  width: 1.5px;
+  height: 44px;
+  margin-left: -0.75px;
+  background: #ef4444;
+  z-index: 4;
+}
+.analog-hand-second::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 2.5px;
+  height: 10px;
+  margin-left: -1.25px;
+  background: #ef4444;
+  border-radius: 1px;
+}
+.analog-center-cap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 1.5px solid var(--surface-solid);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+}
+
+/* 数字化时间与底部 */
+.world-clock-digital {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}
+.digital-time {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.05em;
+}
+.digital-weekday {
+  font-size: 11px;
+  color: var(--muted);
+}
+.world-clock-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 响应式世界时钟 */
+@media (max-width: 720px) {
+  .world-clock-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .world-clock-dialog {
+    padding: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .world-clock-grid {
+    grid-template-columns: 1fr;
+  }
 }
