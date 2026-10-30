@@ -1,12 +1,23 @@
-import { motion } from "motion/react";
+import { motion, useReducedMotion, type Variants } from "motion/react";
 import type { Category } from "../../data";
 import type { ConnectivityResult } from "../../lib/connectivity";
 import { categoryAnchor } from "../../lib/directory";
 import { ItemIcon } from "../icons/ItemIcon";
 import { LinkItemCard } from "./LinkItemCard";
 
+const gridVariants: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.035,
+      delayChildren: 0.04,
+    },
+  },
+};
 export function CategorySection({ category, connectivity }: { category: Category; connectivity: Record<number, ConnectivityResult | undefined> }) {
   const id = categoryAnchor(category.id);
+  const reducedMotion = useReducedMotion();
   return (
     <motion.section
       id={id}
@@ -31,11 +42,17 @@ export function CategorySection({ category, connectivity }: { category: Category
         <span className="category-count">{category.links.length} 个链接</span>
       </div>
       {category.links.length ? (
-        <div className="link-grid">
-          {category.links.map((item, index) => (
-            <LinkItemCard item={item} connectivity={connectivity[item.id]} index={index} key={item.id} />
+        <motion.div
+          className="link-grid"
+          variants={reducedMotion ? undefined : gridVariants}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "0px 0px -40px 0px" }}
+        >
+          {category.links.map((item) => (
+            <LinkItemCard item={item} connectivity={connectivity[item.id]} key={item.id} />
           ))}
-        </div>
+        </motion.div>
       ) : (
         <p className="category-empty">此分类还没有链接</p>
       )}

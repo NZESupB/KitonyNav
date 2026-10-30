@@ -108,7 +108,7 @@ export function formatClock(
 ): FormattedClock {
   const tz = safeTimezone(timezone);
   const is24Hour = appearance?.clock24Hour !== false;
-  const showSeconds = appearance?.clockSeconds === true;
+  const showSeconds = appearance?.clockSeconds !== false;
 
   // 时间格式化
   const timeFormatter = new Intl.DateTimeFormat(is24Hour ? "zh-CN" : "en-US", {

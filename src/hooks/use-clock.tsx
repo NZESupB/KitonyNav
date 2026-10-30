@@ -17,16 +17,21 @@ export function ClockProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // 恢复可见时立即校时
-    setNow(new Date());
-
-    // 开启每秒定时器
-    const intervalId = window.setInterval(() => {
+    // 恢复可见时立即校时，并对齐下一整秒的毫秒边界，防止秒针漂移与跳秒
+    let timerId: number | undefined;
+    const tick = () => {
       setNow(new Date());
-    }, 1000);
+      const nowMs = Date.now();
+      const delay = Math.max(20, 1000 - (nowMs % 1000));
+      timerId = window.setTimeout(tick, delay);
+    };
+
+    tick();
 
     return () => {
-      window.clearInterval(intervalId);
+      if (timerId !== undefined) {
+        window.clearTimeout(timerId);
+      }
     };
   }, [isVisible]);
 

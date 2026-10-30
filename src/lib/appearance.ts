@@ -28,7 +28,7 @@ export const dateStyles: { value: DateStyle; label: string }[] = [
 
 export const defaultAppearance: AppearanceSettings = {
   theme: "system", clockStyle: "plain", dateStyle: "compact", clock24Hour: true,
-  clockSeconds: false, clockColor: "#2f6ff3", clockSpeed: 1,
+  clockSeconds: true, clockColor: "#2f6ff3", clockSpeed: 1,
 };
 
 export function normalizeAppearance(value?: Partial<AppearanceSettings>): AppearanceSettings {
@@ -37,7 +37,7 @@ export function normalizeAppearance(value?: Partial<AppearanceSettings>): Appear
     clockStyle: clockStyles.some((style) => style.value === value?.clockStyle) ? value!.clockStyle! : "plain",
     dateStyle: dateStyles.some((style) => style.value === value?.dateStyle) ? value!.dateStyle! : "compact",
     clock24Hour: value?.clock24Hour !== false,
-    clockSeconds: value?.clockSeconds === true,
+    clockSeconds: value?.clockSeconds !== false,
     clockColor: /^#[0-9a-f]{6}$/i.test(value?.clockColor ?? "") ? value!.clockColor! : defaultAppearance.clockColor,
     clockSpeed: Math.min(3, Math.max(1, Math.round(Number(value?.clockSpeed) || 1))),
   };

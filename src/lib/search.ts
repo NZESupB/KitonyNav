@@ -3,9 +3,8 @@ export const searchEngines = [
   { name: "百度", group: "网页搜索", url: "https://www.baidu.com/s", param: "wd" },
   { name: "Bing", group: "网页搜索", url: "https://www.bing.com/search", param: "q" },
   { name: "DuckDuckGo", group: "网页搜索", url: "https://duckduckgo.com/", param: "q" },
-  { name: "搜狗", group: "网页搜索", url: "https://www.sogou.com/web", param: "query" },
-  { name: "360 搜索", group: "网页搜索", url: "https://www.so.com/s", param: "q" },
   { name: "YouTube", group: "站内搜索", url: "https://www.youtube.com/results", param: "search_query" },
+  { name: "哔哩哔哩", group: "站内搜索", url: "https://search.bilibili.com/all", param: "keyword" },
   { name: "Steam", group: "站内搜索", url: "https://store.steampowered.com/search/", param: "term" },
 ] as const;
 export const engineOptions = searchEngines.map((engine) => engine.name);

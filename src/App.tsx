@@ -203,25 +203,6 @@ function Sidebar({ data, mobile = false }: { data: BootstrapData; mobile?: boole
             <NavItem to="/admin" icon={<Settings2 size={19} />} label="设置" collapsed={collapsed} index={2} />
           </nav>
           <div className="sidebar-rule" />
-          <motion.div
-            className="sidebar-section-heading"
-            inert={collapsed || undefined}
-            initial={false}
-            animate={{
-              opacity: collapsed ? 0 : 1,
-              height: collapsed ? 0 : 28,
-              minHeight: collapsed ? 0 : 28,
-              marginBottom: collapsed ? 0 : 6,
-            }}
-            transition={{
-              duration: reducedMotion ? 0 : collapsed ? 0.12 : 0.22,
-              delay: reducedMotion || collapsed ? 0 : 0.05,
-              ease: collapsed ? "easeIn" : [0.16, 1, 0.3, 1],
-            }}
-            style={{ overflow: "hidden" }}
-          >
-            <span>分类大纲</span>
-          </motion.div>
           <CategoryOutline categories={data.categories} collapsed={collapsed} />
           <div className="sidebar-spacer" />
           <div className="sidebar-footer">

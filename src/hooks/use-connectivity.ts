@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LinkItem, ServiceStatus } from "../data";
-import { completeConnectivity, connectivityLifetime, expireConnectivity, type ConnectivityResult } from "../lib/connectivity";
+import { completeConnectivity, type ConnectivityResult } from "../lib/connectivity";
 import { browserPing } from "../lib/browser-ping";
 export type { ConnectivityResult } from "../lib/connectivity";
 
@@ -11,6 +11,8 @@ type PingCandidate = {
   url?: string;
   isCustomTcp?: boolean;
 };
+
+const PING_INTERVAL_MS = 10_000;
 
 export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]) {
   const [results, setResults] = useState<Record<string, ConnectivityResult>>({});
@@ -54,7 +56,10 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       generation++;
       controllers.forEach((c) => c.abort());
       controllers.clear();
-      if (loopTimer) clearTimeout(loopTimer);
+      if (loopTimer) {
+        clearTimeout(loopTimer);
+        loopTimer = undefined;
+      }
     };
 
     const run = async () => {
@@ -63,17 +68,18 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       const current = generation;
       const started = Date.now();
 
-      // 批量初始化占位状态
-      setResults((prev) =>
-        Object.fromEntries(
-          candidates.map((c) => [
-            c.key,
-            prev[c.key]
-              ? { ...expireConnectivity(prev[c.key]), refreshing: true }
-              : { state: "checking", source: "browser", refreshing: true },
-          ])
-        )
-      );
+      // 批量初始化平滑占位状态：保留上轮实测延迟，仅打上 refreshing 标记，防止数值突变闪烁
+      setResults((prev) => {
+        const next: Record<string, ConnectivityResult> = { ...prev };
+        for (const c of candidates) {
+          if (next[c.key]) {
+            next[c.key] = { ...next[c.key], refreshing: true };
+          } else {
+            next[c.key] = { state: "checking", source: "browser", refreshing: true };
+          }
+        }
+        return next;
+      });
 
       let nextIndex = 0;
       const worker = async () => {
@@ -125,10 +131,10 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       await Promise.all(Array.from({ length: concurrency }, worker));
 
       if (!disposed && current === generation) {
-        loopTimer = setTimeout(
-          () => void run(),
-          Math.max(0, connectivityLifetime - (Date.now() - started))
-        );
+        // 固定 10 秒自动重新测速，减去本轮测速已消耗耗时，平滑衔接
+        const elapsed = Date.now() - started;
+        const delay = Math.max(1_000, PING_INTERVAL_MS - elapsed);
+        loopTimer = setTimeout(() => void run(), delay);
       }
     };
 
@@ -151,7 +157,17 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
   }, [signature, candidates]);
 
   return {
-    links: Object.fromEntries(links.map((link) => [link.id, results[`link:${link.id}`] ? expireConnectivity(results[`link:${link.id}`]) : { state: "checking" as const, source: "browser" as const }])),
-    services: Object.fromEntries(services.map((service) => [service.id, results[`service:${service.id}`] ? expireConnectivity(results[`service:${service.id}`]) : { state: "checking" as const, source: "browser" as const }])),
+    links: Object.fromEntries(
+      links.map((link) => [
+        link.id,
+        results[`link:${link.id}`] ?? { state: "checking" as const, source: "browser" as const },
+      ])
+    ),
+    services: Object.fromEntries(
+      services.map((service) => [
+        service.id,
+        results[`service:${service.id}`] ?? { state: "checking" as const, source: "browser" as const },
+      ])
+    ),
   };
 }

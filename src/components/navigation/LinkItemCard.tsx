@@ -1,23 +1,33 @@
-import type { CSSProperties } from "react";
+import { motion, useReducedMotion, type Variants } from "motion/react";
 import { ArrowUpRight } from "lucide-react";
 import type { LinkItem } from "../../data";
 import type { ConnectivityResult } from "../../lib/connectivity";
 import { ItemIcon } from "../icons/ItemIcon";
 import { LatencyBadge } from "./LatencyBadge";
-
+const cardVariants: Variants = {
+  hidden: { opacity: 0, y: 14, scale: 0.985 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      duration: 0.34,
+      ease: [0.16, 1, 0.3, 1],
+    },
+  },
+};
 export function LinkItemCard({
   item,
   connectivity,
-  index = 0,
 }: {
   item: LinkItem;
   connectivity?: ConnectivityResult;
-  index?: number;
 }) {
+  const reducedMotion = useReducedMotion();
   return (
-    <a
-      className="link-card link-card-animated"
-      style={{ "--card-index": index } as CSSProperties}
+    <motion.a
+      className="link-card"
+      variants={reducedMotion ? undefined : cardVariants}
       href={item.url}
       target="_blank"
       rel="noopener noreferrer"
@@ -31,6 +41,6 @@ export function LinkItemCard({
       </span>
       {item.connectivityEnabled !== false && <LatencyBadge result={connectivity} />}
       <ArrowUpRight className="link-arrow" size={15} />
-    </a>
+    </motion.a>
   );
 }
