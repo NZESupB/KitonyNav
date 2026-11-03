@@ -14,6 +14,7 @@ export type ConnectivityResult = {
 };
 
 export const connectivityLifetime = 60_000;
+const timeFormatter = new Intl.DateTimeFormat("zh-CN", { timeStyle: "medium" });
 
 export function validLatency(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -48,6 +49,6 @@ export function formatConnectivity(result?: ConnectivityResult) {
   const status = stale ? "上次结果，已过期" : state === "reachable" ? "访问可达" : text;
   const sourceLabel = "浏览器实测访问延迟";
   const title = [sourceLabel, status, value, current?.reason, current?.refreshing ? "正在刷新" : "",
-    current?.checkedAt != null ? `测量于 ${new Date(current.checkedAt).toLocaleTimeString("zh-CN")}` : ""].filter(Boolean).join("；");
+    current?.checkedAt != null ? `测量于 ${timeFormatter.format(current.checkedAt)}` : ""].filter(Boolean).join("；");
   return { state, level, text, title };
 }

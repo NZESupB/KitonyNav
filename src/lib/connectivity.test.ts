@@ -44,4 +44,16 @@ describe("formatConnectivity", () => {
     expect(formatted.text).toBe("上次 65 ms");
     expect(formatted.state).toBe("stale");
   });
+
+  it("includes formatted checkedAt in title", () => {
+    const t = 1710000000000;
+    const res: ConnectivityResult = {
+      state: "reachable",
+      source: "browser",
+      latencyMs: 80,
+      checkedAt: t,
+    };
+    const formatted = formatConnectivity(res);
+    expect(formatted.title).toContain(`测量于 ${new Date(t).toLocaleTimeString("zh-CN")}`);
+  });
 });

@@ -45,7 +45,7 @@ export async function browserPing(
   try {
     // 优先尝试 Fetch no-cors
     await fetch(targetUrl, {
-      method: "GET",
+      method: "HEAD",
       mode: "no-cors",
       cache: "no-store",
       credentials: "omit",
@@ -75,7 +75,7 @@ export async function browserPing(
       const cleanup = () => {
         img.onload = null;
         img.onerror = null;
-        img.src = "";
+        img.removeAttribute("src");
         if (signal) signal.removeEventListener("abort", abortHandler);
       };
 
@@ -95,6 +95,7 @@ export async function browserPing(
         resolve({
           reachable,
           latencyMs: reachable ? latencyMs : undefined,
+          error: reachable ? undefined : "连接失败",
           protocol: "image",
         });
       };
@@ -108,9 +109,10 @@ export async function browserPing(
         }
       };
 
-      // 无论成功加载还是 404/403 触发 onerror，均证明与服务器建立了网络连接并收到 HTTP 响应
+      // no-cors fetch 只在网络层失败（拒绝连接、DNS、TLS、拦截）时才会抛错；
+      // 图片 onerror 无法区分 404 与连接失败，因此只有成功加载才算可达，避免把宕机目标误报为正常。
       img.onload = () => finish(true);
-      img.onerror = () => finish(true);
+      img.onerror = () => finish(false);
 
       if (signal) {
         signal.addEventListener("abort", abortHandler, { once: true });

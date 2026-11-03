@@ -1,3 +1,4 @@
+import { useDeferredValue, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { Category } from "../../data";
 import { useUIStore } from "../../stores/ui-store";
@@ -9,7 +10,9 @@ export function CategoryOutline({ categories, collapsed }: { categories: Categor
   const query = useUIStore((state) => state.searchQuery);
   const closeMenu = useUIStore((state) => state.setMobileMenuOpen);
   const location = useLocation();
-  const items = directoryCategories(categories, query);
+  const deferredQuery = useDeferredValue(query);
+  const items = useMemo(() => directoryCategories(categories, deferredQuery), [categories, deferredQuery]);
+
   return <nav className="sidebar-folders category-outline" aria-label="分类大纲">
     {items.map((category) => {
       const active = location.pathname === "/" && activeId === category.id;

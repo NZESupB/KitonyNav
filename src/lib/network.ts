@@ -49,29 +49,73 @@ export function publicStunAddress(candidate: RTCIceCandidate): string | undefine
   return type === "srflx" && address && isPublicAddress(address) ? address : undefined;
 }
 
-export type VisitorGeo = { ip?: string; location?: string; isp?: string; asn?: string };
+export type VisitorGeo = {
+  ip?: string;
+  location?: string;
+  isp?: string;
+  asn?: string;
+  latitude?: number;
+  longitude?: number;
+  city?: string;
+  region?: string;
+  country?: string;
+};
+
+function parseCoordinate(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
 
 export async function fetchVisitorGeo(signal: AbortSignal): Promise<VisitorGeo> {
   const providers: Array<(signal: AbortSignal) => Promise<VisitorGeo>> = [
     async (signal) => {
-      const response = await fetch("https://api.ip.sb/geoip", { signal, credentials: "omit", cache: "no-store" });
-      if (!response.ok) throw new Error("IP 信息查询失败");
-      const value = await response.json();
-      return { ip: value.ip, location: [value.country, value.city || value.region].filter(Boolean).join(" · "), isp: value.isp || value.organization || value.asn_organization, asn: value.asn == null ? undefined : String(value.asn) };
-    },
-    async (signal) => {
-      const response = await fetch("https://ipwho.is/", { signal, credentials: "omit", cache: "no-store" });
+      const response = await fetch("https://ipwho.is/?lang=zh-CN", { signal, credentials: "omit", cache: "no-store" });
       if (!response.ok) throw new Error("IP 信息查询失败");
       const value = await response.json();
       if (value.success === false) throw new Error("IP 信息不可用");
-      return { ip: value.ip, location: [value.country, value.city || value.region].filter(Boolean).join(" · "), isp: value.connection?.isp || value.connection?.org, asn: value.connection?.asn == null ? undefined : `AS${value.connection.asn}` };
+      return {
+        ip: value.ip,
+        location: [value.country, value.city || value.region].filter(Boolean).join(" · "),
+        isp: value.connection?.isp || value.connection?.org,
+        asn: value.connection?.asn == null ? undefined : `AS${value.connection.asn}`,
+        latitude: parseCoordinate(value.latitude),
+        longitude: parseCoordinate(value.longitude),
+        city: typeof value.city === "string" ? value.city : undefined,
+        region: typeof value.region === "string" ? value.region : undefined,
+        country: typeof value.country === "string" ? value.country : undefined,
+      };
     },
     async (signal) => {
       const response = await fetch("https://ipapi.co/json/", { signal, credentials: "omit", cache: "no-store" });
       if (!response.ok) throw new Error("IP 信息查询失败");
       const value = await response.json();
       if (value.error) throw new Error("IP 信息不可用");
-      return { ip: value.ip, location: [value.country_name, value.city || value.region].filter(Boolean).join(" · "), isp: value.org, asn: value.asn };
+      return {
+        ip: value.ip,
+        location: [value.country_name, value.city || value.region].filter(Boolean).join(" · "),
+        isp: value.org,
+        asn: value.asn,
+        latitude: parseCoordinate(value.latitude),
+        longitude: parseCoordinate(value.longitude),
+        city: typeof value.city === "string" ? value.city : undefined,
+        region: typeof value.region === "string" ? value.region : undefined,
+        country: typeof value.country_name === "string" ? value.country_name : undefined,
+      };
+    },
+    async (signal) => {
+      const response = await fetch("https://api.ip.sb/geoip", { signal, credentials: "omit", cache: "no-store" });
+      if (!response.ok) throw new Error("IP 信息查询失败");
+      const value = await response.json();
+      return {
+        ip: value.ip,
+        location: [value.country, value.city || value.region].filter(Boolean).join(" · "),
+        isp: value.isp || value.organization || value.asn_organization,
+        asn: value.asn == null ? undefined : String(value.asn),
+        latitude: parseCoordinate(value.latitude),
+        longitude: parseCoordinate(value.longitude),
+        city: typeof value.city === "string" ? value.city : undefined,
+        region: typeof value.region === "string" ? value.region : undefined,
+        country: typeof value.country === "string" ? value.country : undefined,
+      };
     },
   ];
   for (const provider of providers) {

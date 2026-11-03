@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { LinkItem, ServiceStatus } from "../data";
 import { completeConnectivity, type ConnectivityResult } from "../lib/connectivity";
 import { browserPing } from "../lib/browser-ping";
+import {
+  flushConnectivity,
+  pruneConnectivity,
+  queueConnectivity,
+} from "../stores/connectivity-store";
+
 export type { ConnectivityResult } from "../lib/connectivity";
 
 type PingCandidate = {
@@ -9,14 +15,11 @@ type PingCandidate = {
   id: number;
   type: "link" | "service";
   url?: string;
-  isCustomTcp?: boolean;
 };
 
 const PING_INTERVAL_MS = 10_000;
 
-export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]) {
-  const [results, setResults] = useState<Record<string, ConnectivityResult>>({});
-
+export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus[]): void {
   const candidates = useMemo<PingCandidate[]>(() => {
     const linkItems: PingCandidate[] = links
       .filter((link) => link.visible !== false && link.connectivityEnabled !== false)
@@ -30,22 +33,36 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
     const serviceItems: PingCandidate[] = services
       .filter((service) => service.enabled !== false)
       .map((service) => {
-        if (service.checkType === "http" && service.target && /^https?:\/\//i.test(service.target)) {
-          return { key: `service:${service.id}`, id: service.id, type: "service" as const, url: service.target };
-        }
-        return { key: `service:${service.id}`, id: service.id, type: "service" as const, isCustomTcp: true };
+        const target = service.target?.trim();
+        const isHttpUrl = Boolean(target && /^https?:\/\//i.test(target));
+        return {
+          key: `service:${service.id}`,
+          id: service.id,
+          type: "service" as const,
+          url: isHttpUrl ? target : undefined,
+        };
       });
 
     return [...linkItems, ...serviceItems];
   }, [links, services]);
 
   const signature = useMemo(
-    () => candidates.map((c) => `${c.key}:${c.url || "tcp"}`).join(","),
+    () => candidates.map((c) => `${c.key}:${c.url || "none"}`).join(","),
     [candidates]
   );
 
+  const candidatesRef = useRef(candidates);
   useEffect(() => {
-    if (candidates.length === 0) return;
+    candidatesRef.current = candidates;
+  });
+
+  useEffect(() => {
+    const currentCandidates = candidatesRef.current;
+    if (currentCandidates.length === 0) {
+      // 候选全部移除时同样清理历史结果
+      pruneConnectivity(new Set());
+      return;
+    }
 
     let disposed = false;
     let generation = 0;
@@ -67,33 +84,35 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       if (disposed || document.visibilityState === "hidden") return;
       const current = generation;
       const started = Date.now();
+      const runCandidates = candidatesRef.current;
+
+      // 清理不在当前探测列表中的历史 key
+      pruneConnectivity(new Set(runCandidates.map((c) => c.key)));
 
       // 批量初始化平滑占位状态：保留上轮实测延迟，仅打上 refreshing 标记，防止数值突变闪烁
-      setResults((prev) => {
-        const next: Record<string, ConnectivityResult> = { ...prev };
-        for (const c of candidates) {
-          if (next[c.key]) {
-            next[c.key] = { ...next[c.key], refreshing: true };
-          } else {
-            next[c.key] = { state: "checking", source: "browser", refreshing: true };
+      for (const c of runCandidates) {
+        queueConnectivity(c.key, (prev) => {
+          if (prev) {
+            return { ...prev, refreshing: true };
           }
-        }
-        return next;
-      });
+          return { state: "checking", source: "browser", refreshing: true };
+        });
+      }
+      flushConnectivity();
 
       let nextIndex = 0;
       const worker = async () => {
-        while (!disposed && current === generation && nextIndex < candidates.length) {
-          const item = candidates[nextIndex++];
+        while (!disposed && current === generation && nextIndex < runCandidates.length) {
+          const item = runCandidates[nextIndex++];
           const controller = new AbortController();
           controllers.add(controller);
 
           let res: ConnectivityResult;
-          if (item.isCustomTcp || !item.url) {
+          if (!item.url) {
             res = {
               state: "unknown",
               source: "browser",
-              reason: "纯浏览器模式无法探测非 HTTP 原始 TCP 端口",
+              reason: "未配置检测地址",
             };
           } else {
             try {
@@ -120,14 +139,11 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
           }
 
           if (disposed || current !== generation) return;
-          setResults((prev) => ({
-            ...prev,
-            [item.key]: completeConnectivity(prev[item.key], res),
-          }));
+          queueConnectivity(item.key, (prev) => completeConnectivity(prev, res));
         }
       };
 
-      const concurrency = Math.min(4, candidates.length);
+      const concurrency = Math.min(4, runCandidates.length);
       await Promise.all(Array.from({ length: concurrency }, worker));
 
       if (!disposed && current === generation) {
@@ -154,20 +170,5 @@ export function useDeviceConnectivity(links: LinkItem[], services: ServiceStatus
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [signature, candidates]);
-
-  return {
-    links: Object.fromEntries(
-      links.map((link) => [
-        link.id,
-        results[`link:${link.id}`] ?? { state: "checking" as const, source: "browser" as const },
-      ])
-    ),
-    services: Object.fromEntries(
-      services.map((service) => [
-        service.id,
-        results[`service:${service.id}`] ?? { state: "checking" as const, source: "browser" as const },
-      ])
-    ),
-  };
+  }, [signature]);
 }

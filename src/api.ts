@@ -113,7 +113,7 @@ export async function updateSettings(payload: AppearanceSettings & {
   return request<BootstrapData>("/api/v1/admin/settings", { method: "PUT", body: JSON.stringify(payload) });
 }
 
-export type ServicePayload = { name: string; enabled: boolean; checkType: "none" | "http" | "tcp"; target: string; port: number };
+export type ServicePayload = { name: string; enabled: boolean; target: string };
 export type SubscriptionPayload = { type: "rss" | "github" | "youtube"; name: string; url: string; enabled: boolean; intervalSeconds: number };
 
 export async function createService(payload: ServicePayload) {
@@ -128,9 +128,6 @@ export async function deleteService(id: number) {
   return request<void>(`/api/v1/admin/services/${id}`, { method: "DELETE" });
 }
 
-export async function refreshService(id: number) {
-  return request<ServiceStatus>(`/api/v1/admin/services/${id}/refresh`, { method: "POST" });
-}
 
 export async function createSubscription(payload: SubscriptionPayload) {
   return request<Subscription>("/api/v1/admin/subscriptions", { method: "POST", body: JSON.stringify(payload) });

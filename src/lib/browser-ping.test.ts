@@ -25,7 +25,7 @@ describe("pure frontend browser ping", () => {
     const mockFetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", mockFetch);
 
-    let srcCleared = false;
+    let srcAttributeRemoved = false;
     const mockImage = class {
       onload: (() => void) | null = null;
       onerror: (() => void) | null = null;
@@ -35,13 +35,15 @@ describe("pure frontend browser ping", () => {
       }
       set src(val: string) {
         this._src = val;
-        if (val === "") {
-          srcCleared = true;
-          return;
-        }
         setTimeout(() => {
           if (this.onload) this.onload();
         }, 15);
+      }
+      removeAttribute(attr: string) {
+        if (attr === "src") {
+          srcAttributeRemoved = true;
+          this._src = "";
+        }
       }
     };
     vi.stubGlobal("Image", mockImage);
@@ -50,7 +52,23 @@ describe("pure frontend browser ping", () => {
     expect(result.reachable).toBe(true);
     expect(result.protocol).toBe("image");
     expect(result.latencyMs).toBeGreaterThanOrEqual(1);
-    expect(srcCleared).toBe(true);
+    expect(srcAttributeRemoved).toBe(true);
+  });
+
+  it("treats an image error after a failed fetch as unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    vi.stubGlobal("Image", class {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_val: string) {
+        setTimeout(() => this.onerror?.(), 5);
+      }
+      removeAttribute() {}
+    });
+    const result = await browserPing("https://down.example.com/", 2000);
+    expect(result.reachable).toBe(false);
+    expect(result.latencyMs).toBeUndefined();
+    expect(result.error).toBe("连接失败");
   });
 
   it("detects mixed content when page is https and target is http", async () => {

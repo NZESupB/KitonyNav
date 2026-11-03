@@ -30,19 +30,8 @@ export type Category = {
 export type ServiceStatus = {
   id: number;
   name: string;
-  status: "online" | "degraded" | "offline" | "unknown";
-  latencyMs?: number;
-  updatedAt: string;
   enabled?: boolean;
-  checkType?: "http" | "tcp" | "none";
   target?: string;
-  port?: number;
-  sourceStatus?: "online" | "degraded" | "offline" | "unknown";
-  sourceUpdatedAt?: string;
-  sourceError?: string;
-  localState?: "reachable" | "unreachable" | "unknown" | "checking";
-  localLatencyMs?: number;
-  localCheckedAt?: string;
 };
 
 export type UpdateItem = {
@@ -232,11 +221,11 @@ export const fallbackBootstrap: BootstrapData = {
     },
   ],
   services: [
-    { id: 1, name: "网站访问", status: "online", latencyMs: 28, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
-    { id: 2, name: "API 服务", status: "online", latencyMs: 36, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
-    { id: 3, name: "数据库", status: "online", latencyMs: 18, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
-    { id: 4, name: "存储服务", status: "online", latencyMs: 31, updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
-    { id: 5, name: "邮件服务", status: "degraded", updatedAt: "演示数据", enabled: true, checkType: "none", sourceStatus: "unknown" },
+    { id: 1, name: "网站访问", enabled: true, target: "https://www.baidu.com" },
+    { id: 2, name: "API 服务", enabled: true, target: "https://api.github.com" },
+    { id: 3, name: "数据库", enabled: true, target: "" },
+    { id: 4, name: "存储服务", enabled: true, target: "" },
+    { id: 5, name: "邮件服务", enabled: true, target: "" },
   ],
   updates: [
     { id: 1, source: "RSS", title: "少数派：如何构建一个更顺手的工作台", time: "2 小时前", url: "https://sspai.com" },

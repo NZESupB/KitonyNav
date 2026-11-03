@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   buildCalendarMonth,
@@ -13,7 +13,17 @@ import {
 } from "../../lib/calendar";
 import { ThemedSelect } from "../ui/ThemedSelect";
 
-export default function CalendarPopover({ today }: { today: string }) {
+const YEAR_OPTIONS = Array.from({ length: 201 }, (_, index) => ({
+  value: String(1900 + index),
+  label: `${1900 + index} 年`,
+}));
+
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1),
+  label: `${index + 1} 月`,
+}));
+
+function CalendarPopover({ today }: { today: string }) {
   const initial = today < calendarMin ? calendarMin : today > calendarMax ? calendarMax : today;
   const [selected, setSelected] = useState(initial);
   const [focused, setFocused] = useState(initial);
@@ -114,19 +124,13 @@ export default function CalendarPopover({ today }: { today: string }) {
             aria-label="年份"
             value={String(year)}
             onValueChange={(value) => changeMonth(Number(value), month)}
-            options={Array.from({ length: 201 }, (_, index) => ({
-              value: String(1900 + index),
-              label: `${1900 + index} 年`,
-            }))}
+            options={YEAR_OPTIONS}
           />
           <ThemedSelect
             aria-label="月份"
             value={String(month)}
             onValueChange={(value) => changeMonth(year, Number(value))}
-            options={Array.from({ length: 12 }, (_, index) => ({
-              value: String(index + 1),
-              label: `${index + 1} 月`,
-            }))}
+            options={MONTH_OPTIONS}
           />
         </div>
         <button
@@ -220,3 +224,5 @@ export default function CalendarPopover({ today }: { today: string }) {
     </div>
   );
 }
+
+export default memo(CalendarPopover);

@@ -1,5 +1,23 @@
 import type { AppearanceSettings } from "./appearance";
 
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/** 按 locale + 选项缓存 Intl 格式器；组合有限，无需淘汰 */
+export function cachedDateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    formatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
+const safeTimezoneCache = new Map<string, string | undefined>();
+
 /**
  * 校验并规范化时区字符串；无效或不支持时返回 undefined，安全回退到当前运行环境时区
  */
@@ -8,10 +26,15 @@ export function safeTimezone(value?: string): string | undefined {
     return undefined;
   }
   const trimmed = value.trim();
+  if (safeTimezoneCache.has(trimmed)) {
+    return safeTimezoneCache.get(trimmed);
+  }
   try {
     new Intl.DateTimeFormat(undefined, { timeZone: trimmed });
+    safeTimezoneCache.set(trimmed, trimmed);
     return trimmed;
   } catch {
+    safeTimezoneCache.set(trimmed, undefined);
     return undefined;
   }
 }
@@ -22,7 +45,7 @@ export function safeTimezone(value?: string): string | undefined {
  */
 export function dateKey(now: Date, timezone?: string): string {
   const tz = safeTimezone(timezone);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
+  const formatter = cachedDateTimeFormat("en-CA", {
     timeZone: tz,
     year: "numeric",
     month: "2-digit",
@@ -59,7 +82,7 @@ export function getIntlLunarSummary(now: Date, timezone?: string): string {
   let summary = "";
   try {
     const tz = safeTimezone(timezone);
-    const dtf = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
+    const dtf = cachedDateTimeFormat("zh-CN-u-ca-chinese", {
       timeZone: tz,
       month: "long",
       day: "numeric",
@@ -111,7 +134,7 @@ export function formatClock(
   const showSeconds = appearance?.clockSeconds !== false;
 
   // 时间格式化
-  const timeFormatter = new Intl.DateTimeFormat(is24Hour ? "zh-CN" : "en-US", {
+  const timeFormatter = cachedDateTimeFormat(is24Hour ? "zh-CN" : "en-US", {
     timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
@@ -135,7 +158,7 @@ export function formatClock(
   }
 
   // 日期格式化：3月11日 周二
-  const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  const dateFormatter = cachedDateTimeFormat("zh-CN", {
     timeZone: tz,
     month: "numeric",
     day: "numeric",

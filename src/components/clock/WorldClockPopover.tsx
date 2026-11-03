@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Popover } from "radix-ui";
 import { Globe2, Moon, Sun, X } from "lucide-react";
 import { useClock } from "../../hooks/use-clock";
-import { safeTimezone } from "../../lib/time";
+import { cachedDateTimeFormat, safeTimezone } from "../../lib/time";
 
 type CityTimezone = {
   city: string;
@@ -20,8 +20,18 @@ const WORLD_CITIES: CityTimezone[] = [
   { city: "旧金山", country: "美国", timezone: "America/Los_Angeles", label: "PST / PDT" },
 ];
 
+const WEEKDAYS_ZH: Record<string, string> = {
+  Mon: "周一",
+  Tue: "周二",
+  Wed: "周三",
+  Thu: "周四",
+  Fri: "周五",
+  Sat: "周六",
+  Sun: "周日",
+};
+
 function getTimezoneParts(date: Date, timezone: string) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
+  const formatter = cachedDateTimeFormat("en-US", {
     timeZone: timezone,
     hourCycle: "h23",
     year: "numeric",
@@ -40,16 +50,6 @@ function getTimezoneParts(date: Date, timezone: string) {
   const second = parseInt(find("second"), 10) || 0;
   const weekday = find("weekday");
 
-  const weekdaysZh: Record<string, string> = {
-    Mon: "周一",
-    Tue: "周二",
-    Wed: "周三",
-    Thu: "周四",
-    Fri: "周五",
-    Sat: "周六",
-    Sun: "周日",
-  };
-
   return {
     hour,
     minute,
@@ -58,7 +58,7 @@ function getTimezoneParts(date: Date, timezone: string) {
       (Date.UTC(Number(find("year")), Number(find("month")) - 1, Number(find("day")), hour, minute, second) -
         Math.floor(date.getTime() / 1000) * 1000) /
       60_000,
-    weekdayZh: weekdaysZh[weekday] || weekday,
+    weekdayZh: WEEKDAYS_ZH[weekday] || weekday,
     isDay: hour >= 6 && hour < 18,
     timeString: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`,
   };
@@ -68,6 +68,93 @@ function getTimeDiffLabel(target: { offsetMinutes: number }, base: { offsetMinut
   const diffHours = (target.offsetMinutes - base.offsetMinutes) / 60;
   if (diffHours === 0) return "本地时间";
   return `${diffHours > 0 ? "+" : ""}${diffHours} 小时`;
+}
+
+function WorldClockContent({ baseTimezone }: { baseTimezone?: string }) {
+  const now = useClock();
+  const localZone = safeTimezone(baseTimezone) || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
+  const localParts = getTimezoneParts(now, localZone);
+
+  return (
+    <>
+      <div className="world-clock-header">
+        <div className="world-clock-title-area">
+          <span className="world-clock-badge">
+            <Globe2 size={15} /> 世界时钟
+          </span>
+          <h2 className="world-clock-heading">多时区时刻与表盘</h2>
+        </div>
+        <Popover.Close asChild>
+          <button type="button" className="icon-button subtle" aria-label="关闭世界时钟">
+            <X size={16} />
+          </button>
+        </Popover.Close>
+      </div>
+
+      <div className="world-clock-grid">
+        {WORLD_CITIES.map((item) => {
+          const parts = getTimezoneParts(now, item.timezone);
+          const diff = getTimeDiffLabel(parts, localParts);
+
+          const hourDeg = (parts.hour % 12) * 30 + parts.minute * 0.5;
+          const minDeg = parts.minute * 6 + parts.second * 0.1;
+          const secDeg = parts.second * 6;
+
+          return (
+            <div className={`world-clock-card ${parts.isDay ? "day" : "night"}`} key={item.timezone}>
+              <div className="world-clock-meta">
+                <div className="world-clock-city">
+                  <strong>{item.city}</strong>
+                  <small>{item.country} · {item.label}</small>
+                </div>
+                <span className={`world-clock-daynight ${parts.isDay ? "is-day" : "is-night"}`} title={parts.isDay ? "白天" : "夜晚"}>
+                  {parts.isDay ? <Sun size={13} /> : <Moon size={13} />}
+                  <span>{diff}</span>
+                </span>
+              </div>
+
+              <div className="analog-dial-wrapper">
+                <div className="analog-dial">
+                  <div className="analog-dial-face">
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <span
+                        key={i}
+                        className={`analog-mark ${i % 3 === 0 ? "major" : "minor"}`}
+                        style={{ transform: `rotate(${i * 30}deg)` }}
+                      />
+                    ))}
+                    <div
+                      className="analog-hand analog-hand-hour"
+                      style={{ transform: `rotate(${hourDeg}deg)` }}
+                    />
+                    <div
+                      className="analog-hand analog-hand-minute"
+                      style={{ transform: `rotate(${minDeg}deg)` }}
+                    />
+                    <div
+                      className="analog-hand analog-hand-second"
+                      style={{ transform: `rotate(${secDeg}deg)` }}
+                    />
+                    <div className="analog-center-cap" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="world-clock-digital">
+                <span className="digital-time">{parts.timeString}</span>
+                <span className="digital-weekday">{parts.weekdayZh}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="world-clock-footer">
+        <span>基准时区：{localZone}</span>
+        <small>秒针同步 · 随系统精确计时</small>
+      </div>
+    </>
+  );
 }
 
 export function WorldClockPopover({
@@ -81,10 +168,6 @@ export function WorldClockPopover({
   baseTimezone?: string;
   trigger: ReactNode;
 }) {
-  const now = useClock();
-  const localZone = safeTimezone(baseTimezone) || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
-  const localParts = getTimezoneParts(now, localZone);
-
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
@@ -96,87 +179,9 @@ export function WorldClockPopover({
           sideOffset={10}
           collisionPadding={8}
         >
-          <div className="world-clock-header">
-            <div className="world-clock-title-area">
-              <span className="world-clock-badge">
-                <Globe2 size={15} /> 世界时钟
-              </span>
-              <h2 className="world-clock-heading">多时区时刻与表盘</h2>
-            </div>
-            <Popover.Close asChild>
-              <button type="button" className="icon-button subtle" aria-label="关闭世界时钟">
-                <X size={16} />
-              </button>
-            </Popover.Close>
-          </div>
-
-          <div className="world-clock-grid">
-            {WORLD_CITIES.map((item) => {
-              const parts = getTimezoneParts(now, item.timezone);
-              const diff = getTimeDiffLabel(parts, localParts);
-
-              const hourDeg = (parts.hour % 12) * 30 + parts.minute * 0.5;
-              const minDeg = parts.minute * 6 + parts.second * 0.1;
-              const secDeg = parts.second * 6;
-
-              return (
-                <div className={`world-clock-card ${parts.isDay ? "day" : "night"}`} key={item.timezone}>
-                  <div className="world-clock-meta">
-                    <div className="world-clock-city">
-                      <strong>{item.city}</strong>
-                      <small>{item.country} · {item.label}</small>
-                    </div>
-                    <span className={`world-clock-daynight ${parts.isDay ? "is-day" : "is-night"}`} title={parts.isDay ? "白天" : "夜晚"}>
-                      {parts.isDay ? <Sun size={13} /> : <Moon size={13} />}
-                      <span>{diff}</span>
-                    </span>
-                  </div>
-
-                  <div className="analog-dial-wrapper">
-                    <div className="analog-dial">
-                      <div className="analog-dial-face">
-                        {Array.from({ length: 12 }, (_, i) => (
-                          <span
-                            key={i}
-                            className={`analog-mark ${i % 3 === 0 ? "major" : "minor"}`}
-                            style={{ transform: `rotate(${i * 30}deg)` }}
-                          />
-                        ))}
-                        <div
-                          className="analog-hand analog-hand-hour"
-                          style={{ transform: `rotate(${hourDeg}deg)` }}
-                        />
-                        <div
-                          className="analog-hand analog-hand-minute"
-                          style={{ transform: `rotate(${minDeg}deg)` }}
-                        />
-                        <div
-                          className="analog-hand analog-hand-second"
-                          style={{ transform: `rotate(${secDeg}deg)` }}
-                        />
-                        <div className="analog-center-cap" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="world-clock-digital">
-                    <span className="digital-time">{parts.timeString}</span>
-                    <span className="digital-weekday">{parts.weekdayZh}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="world-clock-footer">
-            <span>基准时区：{localZone}</span>
-            <small>秒针同步 · 随系统精确计时</small>
-          </div>
+          <WorldClockContent baseTimezone={baseTimezone} />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
   );
 }
-
-// 保持向下兼容
-export { WorldClockPopover as WorldClockModal };

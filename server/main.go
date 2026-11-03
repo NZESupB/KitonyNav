@@ -51,19 +51,12 @@ type link struct {
 	ConnectivityEnabled bool   `json:"connectivityEnabled"`
 }
 
+// serviceStatus 只描述服务配置；在线状态与延迟由访问者浏览器按 target 实测，服务端不再保存检查结果。
 type serviceStatus struct {
-	ID              int    `json:"id"`
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	LatencyMS       *int   `json:"latencyMs,omitempty"`
-	UpdatedAt       string `json:"updatedAt"`
-	Enabled         bool   `json:"enabled"`
-	CheckType       string `json:"checkType"`
-	Target          string `json:"target,omitempty"`
-	Port            *int   `json:"port,omitempty"`
-	SourceStatus    string `json:"sourceStatus,omitempty"`
-	SourceUpdatedAt string `json:"sourceUpdatedAt,omitempty"`
-	SourceError     string `json:"sourceError,omitempty"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
 }
 
 type updateItem struct {
@@ -159,12 +152,11 @@ type settingsPayload struct {
 	ClockSpeed       int     `json:"clockSpeed"`
 }
 
+// servicePayload 只接收浏览器测速所需字段；前后端同版本发布，不再接受旧版 checkType/port。
 type servicePayload struct {
-	Name      string `json:"name"`
-	Enabled   bool   `json:"enabled"`
-	CheckType string `json:"checkType"`
-	Target    string `json:"target"`
-	Port      int    `json:"port"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Target  string `json:"target"`
 }
 
 type subscriptionPayload struct {
@@ -200,6 +192,10 @@ func openStore(path string) (*store, error) {
 		return nil, err
 	}
 	if err := applyDataDefaults(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := migrateServicesToBrowser(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -403,7 +399,7 @@ func seed(db *sql.DB) error {
 			return err
 		}
 	}
-	// 服务与动态不再预置演示数据：服务由管理端配置后真实检查，动态由订阅抓取产生。
+	// 服务与动态不再预置演示数据：服务由管理端配置后由访问者浏览器测速，动态由订阅抓取产生。
 	return tx.Commit()
 }
 
@@ -440,6 +436,92 @@ func applyDataDefaults(db *sql.DB) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// migrateServicesToBrowser 对每个数据库只执行一次：服务改由访问者浏览器测速后，把旧的检查配置收敛为 http(s) 检测地址。
+// 旧的 status、check_type、port 等列保留不删，便于回滚，但此后不再读写。
+func migrateServicesToBrowser(db *sql.DB) error {
+	var applied string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'services_browser_v1'").Scan(&applied); err == nil {
+		return nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	type legacyService struct {
+		id                int
+		checkType, target string
+		port              sql.NullInt64
+	}
+	rows, err := tx.Query("SELECT id, check_type, target, port FROM services")
+	if err != nil {
+		return err
+	}
+	var items []legacyService
+	for rows.Next() {
+		var item legacyService
+		if err := rows.Scan(&item.id, &item.checkType, &item.target, &item.port); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, item := range items {
+		target := strings.TrimSpace(item.target)
+		switch item.checkType {
+		case "http":
+			// HTTP 检查的目标本身就是网址，保持不变。
+			continue
+		case "tcp":
+			if target != "" {
+				target = legacyTCPTargetURL(target, item.port)
+			}
+		}
+		// 转换结果或其他类型的旧目标不是有效网址时置空，由前端提示未配置检测地址。
+		if !validHTTPURL(target) {
+			target = ""
+		}
+		if target == item.target {
+			continue
+		}
+		if _, err := tx.Exec("UPDATE services SET target = ? WHERE id = ?", target, item.id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("INSERT INTO settings(key, value) VALUES ('services_browser_v1', 'applied')"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// legacyTCPTargetURL 把旧 TCP 检查的主机与端口转换为浏览器测速网址：80 用 http，空端口或 443 用 https，其他端口保留在 https 网址中。
+func legacyTCPTargetURL(host string, port sql.NullInt64) string {
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	switch {
+	case port.Valid && port.Int64 == 80:
+		return "http://" + bracketIPv6Host(host)
+	case !port.Valid || port.Int64 == 443:
+		return "https://" + bracketIPv6Host(host)
+	default:
+		return "https://" + net.JoinHostPort(host, strconv.FormatInt(port.Int64, 10))
+	}
+}
+
+// bracketIPv6Host 为默认端口的 IPv6 主机补上方括号，与 net.JoinHostPort 的写法保持一致。
+func bracketIPv6Host(host string) string {
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func boolInt(value bool) int {
@@ -509,31 +591,10 @@ func (s *store) bootstrap() (bootstrapResponse, error) {
 		result.Categories = append(result.Categories, categoryItems[i])
 	}
 
-	serviceRows, err := s.db.Query("SELECT id, name, status, latency_ms, updated_at, enabled, check_type, target, port, source_status, source_updated_at, source_error FROM services ORDER BY id")
+	result.Services, err = s.services()
 	if err != nil {
 		return result, err
 	}
-	for serviceRows.Next() {
-		var item serviceStatus
-		var latency sql.NullInt64
-		var port sql.NullInt64
-		var enabled int
-		if err := serviceRows.Scan(&item.ID, &item.Name, &item.Status, &latency, &item.UpdatedAt, &enabled, &item.CheckType, &item.Target, &port, &item.SourceStatus, &item.SourceUpdatedAt, &item.SourceError); err != nil {
-			serviceRows.Close()
-			return result, err
-		}
-		item.Enabled = enabled == 1
-		if port.Valid {
-			value := int(port.Int64)
-			item.Port = &value
-		}
-		if latency.Valid {
-			value := int(latency.Int64)
-			item.LatencyMS = &value
-		}
-		result.Services = append(result.Services, item)
-	}
-	serviceRows.Close()
 
 	updateRows, err := s.db.Query("SELECT id, source, title, time_text, url FROM updates ORDER BY sort_order, id")
 	if err != nil {
@@ -969,7 +1030,7 @@ func resolveTimezone(value string) (string, error) {
 }
 
 func (s *store) services() ([]serviceStatus, error) {
-	rows, err := s.db.Query("SELECT id, name, status, latency_ms, updated_at, enabled, check_type, target, port, source_status, source_updated_at, source_error FROM services ORDER BY id")
+	rows, err := s.db.Query("SELECT id, name, enabled, target FROM services ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -977,34 +1038,34 @@ func (s *store) services() ([]serviceStatus, error) {
 	result := make([]serviceStatus, 0)
 	for rows.Next() {
 		var item serviceStatus
-		var latency, port sql.NullInt64
 		var enabled int
-		if err := rows.Scan(&item.ID, &item.Name, &item.Status, &latency, &item.UpdatedAt, &enabled, &item.CheckType, &item.Target, &port, &item.SourceStatus, &item.SourceUpdatedAt, &item.SourceError); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &enabled, &item.Target); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled == 1
-		if latency.Valid {
-			value := int(latency.Int64)
-			item.LatencyMS = &value
-		}
-		if port.Valid {
-			value := int(port.Int64)
-			item.Port = &value
-		}
 		result = append(result, item)
 	}
 	return result, rows.Err()
 }
 
+var errInvalidServiceTarget = errors.New("检测地址需为 http(s) 网址")
+
+// serviceTarget 校验浏览器测速地址：允许留空（前端显示未配置），非空时必须是 http(s) 网址。
+func serviceTarget(value string) (string, error) {
+	target := strings.TrimSpace(value)
+	if target != "" && !validHTTPURL(target) {
+		return "", errInvalidServiceTarget
+	}
+	return target, nil
+}
+
 func (s *store) insertService(payload servicePayload) (serviceStatus, error) {
-	checkType := defaultEnum(payload.CheckType, "none", "none", "http", "tcp")
-	if checkType == "http" && !validHTTPURL(payload.Target) {
-		return serviceStatus{}, errors.New("HTTP 检查地址不正确")
+	target, err := serviceTarget(payload.Target)
+	if err != nil {
+		return serviceStatus{}, err
 	}
-	if checkType == "tcp" && (strings.TrimSpace(payload.Target) == "" || payload.Port < 1 || payload.Port > 65535) {
-		return serviceStatus{}, errors.New("TCP 检查目标或端口不正确")
-	}
-	result, err := s.db.Exec("INSERT INTO services(name, status, updated_at, enabled, check_type, target, port, source_status) VALUES (?, 'unknown', ?, ?, ?, ?, ?, 'unknown')", defaultString(payload.Name, "未命名服务"), time.Now().UTC().Format(time.RFC3339), boolInt(payload.Enabled), checkType, strings.TrimSpace(payload.Target), nullablePort(payload.Port))
+	// status、check_type 等旧检查列保留但不再使用，靠列默认值满足 NOT NULL；updated_at 无默认值需显式写入。
+	result, err := s.db.Exec("INSERT INTO services(name, status, updated_at, enabled, target) VALUES (?, 'unknown', ?, ?, ?)", defaultString(payload.Name, "未命名服务"), time.Now().UTC().Format(time.RFC3339), boolInt(payload.Enabled), target)
 	if err != nil {
 		return serviceStatus{}, err
 	}
@@ -1025,14 +1086,11 @@ func (s *store) insertService(payload servicePayload) (serviceStatus, error) {
 }
 
 func (s *store) updateService(id int, payload servicePayload) (serviceStatus, error) {
-	checkType := defaultEnum(payload.CheckType, "none", "none", "http", "tcp")
-	if checkType == "http" && !validHTTPURL(payload.Target) {
-		return serviceStatus{}, errors.New("HTTP 检查地址不正确")
+	target, err := serviceTarget(payload.Target)
+	if err != nil {
+		return serviceStatus{}, err
 	}
-	if checkType == "tcp" && (strings.TrimSpace(payload.Target) == "" || payload.Port < 1 || payload.Port > 65535) {
-		return serviceStatus{}, errors.New("TCP 检查目标或端口不正确")
-	}
-	if _, err := s.db.Exec("UPDATE services SET name = ?, enabled = ?, check_type = ?, target = ?, port = ?, status = CASE WHEN check_type <> ? OR target <> ? OR COALESCE(port, 0) <> ? THEN 'unknown' ELSE status END WHERE id = ?", defaultString(payload.Name, "未命名服务"), boolInt(payload.Enabled), checkType, strings.TrimSpace(payload.Target), nullablePort(payload.Port), checkType, strings.TrimSpace(payload.Target), payload.Port, id); err != nil {
+	if _, err := s.db.Exec("UPDATE services SET name = ?, enabled = ?, target = ? WHERE id = ?", defaultString(payload.Name, "未命名服务"), boolInt(payload.Enabled), target, id); err != nil {
 		return serviceStatus{}, err
 	}
 	for _, item := range mustServices(s) {
@@ -1045,21 +1103,8 @@ func (s *store) updateService(id int, payload servicePayload) (serviceStatus, er
 
 func mustServices(s *store) []serviceStatus { items, _ := s.services(); return items }
 
-func nullablePort(port int) any {
-	if port <= 0 {
-		return nil
-	}
-	return port
-}
-
 func (s *store) deleteService(id int) error {
 	_, err := s.db.Exec("DELETE FROM services WHERE id = ?", id)
-	return err
-}
-
-func (s *store) updateServiceResult(id int, status string, latency *int, sourceError string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.Exec("UPDATE services SET status = ?, latency_ms = ?, updated_at = ?, source_status = ?, source_updated_at = ?, source_error = ? WHERE id = ?", status, latency, now, status, now, sourceError, id)
 	return err
 }
 
@@ -1184,7 +1229,6 @@ func (s *appServer) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/services", s.requireWrite(s.handleCreateService))
 	mux.HandleFunc("PUT /api/v1/admin/services/{id}", s.requireWrite(s.handleUpdateService))
 	mux.HandleFunc("DELETE /api/v1/admin/services/{id}", s.requireWrite(s.handleDeleteService))
-	mux.HandleFunc("POST /api/v1/admin/services/{id}/refresh", s.requireWrite(s.handleRefreshService))
 	mux.HandleFunc("POST /api/v1/admin/subscriptions", s.requireWrite(s.handleCreateSubscription))
 	mux.HandleFunc("PUT /api/v1/admin/subscriptions/{id}", s.requireWrite(s.handleUpdateSubscription))
 	mux.HandleFunc("DELETE /api/v1/admin/subscriptions/{id}", s.requireWrite(s.handleDeleteSubscription))
@@ -1443,106 +1487,6 @@ func (s *appServer) handleDeleteService(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *appServer) handleRefreshService(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r, "id")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "服务 ID 不正确")
-		return
-	}
-	items, err := s.store.services()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "读取服务失败")
-		return
-	}
-	var service serviceStatus
-	for _, item := range items {
-		if item.ID == id {
-			service = item
-			break
-		}
-	}
-	if service.ID == 0 {
-		writeError(w, http.StatusNotFound, "服务不存在")
-		return
-	}
-	if !service.Enabled {
-		writeError(w, http.StatusBadRequest, "服务已停用")
-		return
-	}
-	status, latency, checkErr := checkConfiguredService(service)
-	if err := s.store.updateServiceResult(id, status, latency, errorText(checkErr)); err != nil {
-		writeError(w, http.StatusInternalServerError, "保存服务状态失败")
-		return
-	}
-	if checkErr != nil {
-		writeError(w, http.StatusBadGateway, checkErr.Error())
-		return
-	}
-	updated, _ := s.store.services()
-	for _, item := range updated {
-		if item.ID == id {
-			writeJSON(w, http.StatusOK, item)
-			return
-		}
-	}
-	writeJSON(w, http.StatusOK, service)
-}
-
-func checkConfiguredService(service serviceStatus) (string, *int, error) {
-	started := time.Now()
-	switch service.CheckType {
-	case "tcp":
-		if service.Target == "" || service.Port == nil {
-			return "unknown", nil, errors.New("TCP 目标未配置")
-		}
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(service.Target, strconv.Itoa(*service.Port)), 5*time.Second)
-		if err != nil {
-			return "offline", nil, err
-		}
-		_ = conn.Close()
-		latency := int(time.Since(started).Milliseconds())
-		return "online", &latency, nil
-	case "http":
-		if !validHTTPURL(service.Target) {
-			return "unknown", nil, errors.New("HTTP 目标未配置")
-		}
-		client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 2 {
-				return errors.New("重定向次数过多")
-			}
-			return nil
-		}}
-		request, err := http.NewRequest(http.MethodGet, service.Target, nil)
-		if err != nil {
-			return "unknown", nil, err
-		}
-		request.Header.Set("User-Agent", "KitonyNav/0.0.2")
-		response, err := client.Do(request)
-		if err != nil {
-			return "offline", nil, err
-		}
-		defer response.Body.Close()
-		_, _ = io.CopyN(io.Discard, response.Body, 64<<10)
-		latency := int(time.Since(started).Milliseconds())
-		if response.StatusCode >= 500 {
-			return "offline", &latency, fmt.Errorf("HTTP %d", response.StatusCode)
-		}
-		if response.StatusCode >= 400 {
-			return "degraded", &latency, fmt.Errorf("HTTP %d", response.StatusCode)
-		}
-		return "online", &latency, nil
-	default:
-		return "unknown", nil, errors.New("未配置检查方式")
-	}
-}
-
-func errorText(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
 func (s *appServer) handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	var payload subscriptionPayload
 	if err := decodeJSON(r, &payload); err != nil || !validSubscription(payload) {
@@ -1782,13 +1726,8 @@ func refreshLoop(ctx context.Context, data *store) {
 	}
 }
 
+// refreshConfiguredData 只刷新订阅；服务状态由访问者浏览器测速，服务端不再做任何服务检查。
 func refreshConfiguredData(data *store) {
-	for _, service := range mustServices(data) {
-		if service.Enabled && service.CheckType != "none" {
-			status, latency, err := checkConfiguredService(service)
-			_ = data.updateServiceResult(service.ID, status, latency, errorText(err))
-		}
-	}
 	for _, item := range mustSubscriptions(data) {
 		if item.Enabled {
 			_ = data.refreshSubscription(item.ID)

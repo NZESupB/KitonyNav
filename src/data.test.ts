@@ -40,4 +40,14 @@ describe("navigation bootstrap data", () => {
     expect(resolveEngine("unknown-engine")).toBe("Google");
     expect(resolveEngine(undefined)).toBe("Google");
   });
+
+  it("provides fallback service statuses conforming to the browser-ping contract", () => {
+    expect(fallbackBootstrap.services.length).toBeGreaterThan(0);
+    for (const service of fallbackBootstrap.services) {
+      expect(typeof service.id).toBe("number");
+      expect(typeof service.name).toBe("string");
+      expect(service).not.toHaveProperty("checkType");
+      expect(service).not.toHaveProperty("status");
+    }
+  });
 });

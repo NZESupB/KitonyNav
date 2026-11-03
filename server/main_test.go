@@ -3,12 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -151,7 +149,7 @@ func TestV002BootstrapIncludesAppearanceAndMonitorDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.CheckType != "none" || !item.Enabled {
+	if item.Target != "" || !item.Enabled {
 		t.Fatalf("expected new service defaults, got %+v", item)
 	}
 }
@@ -191,27 +189,6 @@ func TestParseGitHubTagFeed(t *testing.T) {
 	}
 	if items[0].title != "v0.1.1" || items[0].published != "2026-09-11T07:54:38Z" || !strings.HasSuffix(items[0].url, "/releases/tag/v0.1.1") {
 		t.Fatalf("unexpected tag entry: %+v", items[0])
-	}
-}
-
-func TestConfiguredTCPServiceCheck(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	address, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	portNumber, err := strconv.Atoi(port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := serviceStatus{CheckType: "tcp", Target: address, Port: &portNumber}
-	status, latency, checkErr := checkConfiguredService(service)
-	if checkErr != nil || status != "online" || latency == nil {
-		t.Fatalf("expected successful TCP check, status=%s latency=%v err=%v", status, latency, checkErr)
 	}
 }
 
@@ -293,6 +270,141 @@ func TestUpdateSettingsValidatesTimezone(t *testing.T) {
 	}
 	if bootstrap.Settings.Timezone != "Asia/Shanghai" {
 		t.Fatalf("expected stored timezone, got %q", bootstrap.Settings.Timezone)
+	}
+}
+
+// legacyServiceRow 写入一条 v0.0.2 时期的服务行，模拟升级前的数据。
+func legacyServiceRow(t *testing.T, data *store, name, checkType, target string, port any) {
+	t.Helper()
+	if _, err := data.db.Exec("INSERT INTO services(name, updated_at, check_type, target, port) VALUES (?, '2026-09-11T00:00:00Z', ?, ?, ?)", name, checkType, target, port); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func serviceTargets(t *testing.T, data *store) map[string]string {
+	t.Helper()
+	items, err := data.services()
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := make(map[string]string, len(items))
+	for _, item := range items {
+		targets[item.Name] = item.Target
+	}
+	return targets
+}
+
+func TestMigrateServicesToBrowserRunsOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kitonynav.db")
+	data, err := openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyServiceRow(t, data, "tcp443", "tcp", "example.com", 443)
+	legacyServiceRow(t, data, "tcp8443", "tcp", "example.com", 8443)
+	legacyServiceRow(t, data, "tcp80", "tcp", "example.com", 80)
+	legacyServiceRow(t, data, "tcpNoPort", "tcp", "example.com", nil)
+	legacyServiceRow(t, data, "tcpIPv6", "tcp", "2001:db8::1", 8443)
+	legacyServiceRow(t, data, "tcpIPv6Default", "tcp", "2001:db8::1", 443)
+	legacyServiceRow(t, data, "http", "http", "https://status.example.com/health", nil)
+	legacyServiceRow(t, data, "noneInvalid", "none", "not a url", nil)
+	legacyServiceRow(t, data, "noneURL", "none", "https://example.com", nil)
+	// 模拟升级：新库启动时标记已写入，清掉标记后才等同于旧数据库首次启动。
+	if _, err := data.db.Exec("DELETE FROM settings WHERE key = 'services_browser_v1'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateServicesToBrowser(data.db); err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]string{
+		"tcp443":         "https://example.com",
+		"tcp8443":        "https://example.com:8443",
+		"tcp80":          "http://example.com",
+		"tcpNoPort":      "https://example.com",
+		"tcpIPv6":        "https://[2001:db8::1]:8443",
+		"tcpIPv6Default": "https://[2001:db8::1]",
+		"http":           "https://status.example.com/health",
+		"noneInvalid":    "",
+		"noneURL":        "https://example.com",
+	}
+	targets := serviceTargets(t, data)
+	for name, want := range expected {
+		if targets[name] != want {
+			t.Fatalf("expected %s target %q, got %q", name, want, targets[name])
+		}
+	}
+	// 迁移后写入的旧格式行用于确认第二次启动不会再次转换。
+	legacyServiceRow(t, data, "afterMigration", "tcp", "later.example.com", 443)
+	expected["afterMigration"] = "later.example.com"
+	if err := data.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := openStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.db.Close()
+	targets = serviceTargets(t, reopened)
+	for name, want := range expected {
+		if targets[name] != want {
+			t.Fatalf("expected %s target to stay %q on second start, got %q", name, want, targets[name])
+		}
+	}
+}
+
+func TestCreateServiceValidatesTarget(t *testing.T) {
+	data, err := openStore(filepath.Join(t.TempDir(), "kitonynav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.db.Close()
+	app := &appServer{store: data, auth: newAuthManager("secret", false)}
+	create := func(body string) *httptest.ResponseRecorder {
+		res := httptest.NewRecorder()
+		app.handleCreateService(res, httptest.NewRequest(http.MethodPost, "/api/v1/admin/services", strings.NewReader(body)))
+		return res
+	}
+	invalid := create(`{"name":"非法地址","enabled":true,"target":"example.com:443"}`)
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "检测地址需为 http(s) 网址") {
+		t.Fatalf("expected invalid target to be rejected, got code=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	if empty := create(`{"name":"未配置","enabled":true,"target":"  "}`); empty.Code != http.StatusCreated {
+		t.Fatalf("expected empty target to be accepted, got code=%d body=%s", empty.Code, empty.Body.String())
+	}
+}
+
+func TestBootstrapServiceJSONKeepsBrowserContract(t *testing.T) {
+	data, err := openStore(filepath.Join(t.TempDir(), "kitonynav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.db.Close()
+	if _, err := data.insertService(servicePayload{Name: "未配置地址", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := data.bootstrap()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bootstrap.Services) != 1 {
+		t.Fatalf("expected one service, got %+v", bootstrap.Services)
+	}
+	payload, err := json.Marshal(bootstrap.Services[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		t.Fatal(err)
+	}
+	// target 为空时也必须输出，前端靠它判断“未配置检测地址”。
+	if len(fields) != 4 {
+		t.Fatalf("expected exactly four service keys, got %s", payload)
+	}
+	for _, key := range []string{"id", "name", "enabled", "target"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("expected key %s in %s", key, payload)
+		}
 	}
 }
 
